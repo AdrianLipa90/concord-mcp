@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
 const identitySchema = z.object({
-  installation_id: z.string().uuid(),
+  installation_id: z.uuid(),
   workspace_key: z.string().regex(/^[0-9a-f]{64}$/u),
   notice_shown: z.boolean(),
 });

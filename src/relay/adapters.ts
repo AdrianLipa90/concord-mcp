@@ -64,7 +64,7 @@ export class CursorSessionAdapter implements AgentSessionAdapter {
 }
 
 function receiptFrom(value: unknown): string | undefined {
-  const parsed = z.record(z.unknown()).safeParse(value);
+  const parsed = z.record(z.string(), z.unknown()).safeParse(value);
   if (!parsed.success) return undefined;
   for (const key of ['turnId', 'turn_id', 'id']) {
     if (typeof parsed.data[key] === 'string') return parsed.data[key];

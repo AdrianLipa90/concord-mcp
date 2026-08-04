@@ -11,7 +11,9 @@ export const CONCORD_SERVER_COMMAND = 'concord-mcp';
 /** Repo-relative config paths that share the `mcpServers` JSON shape. */
 const JSON_TARGETS: readonly string[] = ['.mcp.json', join('.cursor', 'mcp.json')];
 
-const mcpConfigSchema = z.object({ mcpServers: z.record(z.unknown()).optional() }).passthrough();
+const mcpConfigSchema = z
+  .object({ mcpServers: z.record(z.string(), z.unknown()).optional() })
+  .loose();
 
 /**
  * Thrown when an existing config file cannot be parsed. The caller reports this

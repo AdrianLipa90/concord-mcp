@@ -17,10 +17,10 @@ const settingsSchema = z
         PreToolUse: z.array(z.unknown()).optional(),
         SessionStart: z.array(z.unknown()).optional(),
       })
-      .passthrough()
+      .loose()
       .optional(),
   })
-  .passthrough();
+  .loose();
 
 /** Append `entry` to the named hook event unless a hook running `command` is
  * already present. Returns the updated event array. */
