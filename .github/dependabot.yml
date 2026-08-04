@@ -5,6 +5,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # typescript-eslint pins `typescript: <6.1.0`, so TS 7 breaks `pnpm lint`
+      # outright ("typescript-eslint does not support TS 7.0"). Drop this entry
+      # once typescript-eslint widens its peer range to TS 7.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
     groups:
       dev-dependencies:
         dependency-type: development
