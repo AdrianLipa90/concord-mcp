@@ -57,7 +57,16 @@ describe('decidePreToolUse', () => {
 
 describe('sessionStartAgentId', () => {
   it('derives a stable id from the session id', () => {
-    expect(sessionStartAgentId('a1b2c3d4-e5f6-7890')).toBe('claude-code:a1b2c3d4');
+    const id = sessionStartAgentId('a1b2c3d4-e5f6-7890');
+
+    expect(id).toMatch(/^claude-code:[0-9a-f]{8}$/);
+    expect(sessionStartAgentId('a1b2c3d4-e5f6-7890')).toBe(id);
+  });
+
+  it('separates sessions that share a leading timestamp', () => {
+    expect(sessionStartAgentId('019fd3d0-aaaa-7211-b743-000000000001')).not.toBe(
+      sessionStartAgentId('019fd3d0-bbbb-7211-b743-000000000002'),
+    );
   });
 
   it('falls back to a random suffix when no session id is given', () => {
@@ -76,12 +85,12 @@ describe('handleSessionStart', () => {
       repos,
       JSON.stringify({ session_id: 'a1b2c3d4-e5f6', cwd: '/repo' }),
     );
-    expect(result.agentId).toBe('claude-code:a1b2c3d4');
-    expect(result.message).toContain('claude-code:a1b2c3d4');
+    expect(result.agentId).toMatch(/^claude-code:[0-9a-f]{8}$/);
+    expect(result.message).toContain(result.agentId);
     expect(result.message).toContain('start_work, update_work, finish_work');
     expect(result.message).not.toContain('claim_work');
     expect(result.message).toContain('No other agents');
-    expect(repos.agents.get('claude-code:a1b2c3d4')?.cwd).toBe('/repo');
+    expect(repos.agents.get(result.agentId)?.cwd).toBe('/repo');
   });
 
   it('is idempotent for the same session and lists other present agents', () => {

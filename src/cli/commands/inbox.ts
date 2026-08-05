@@ -15,7 +15,7 @@ import { resolveAgentId } from '../agent-identity.js';
 import { openContext } from '../context.js';
 
 /** How long a registered pull endpoint stays promptable between drains. */
-export const PULL_ENDPOINT_TTL_MS = 90_000;
+const PULL_ENDPOINT_TTL_MS = 90_000;
 
 /**
  * Advertise that `agentId` can receive messages by draining them from inside
@@ -85,14 +85,9 @@ export function drainInbox(
   provider: string,
 ): DeliverableMessage[] {
   registerPullEndpoint(repos, agentId, provider);
-  const pending = repos.agentMessages.listPendingForRecipient(agentId);
-  const drained: DeliverableMessage[] = [];
-  for (const message of pending) {
-    repos.agentMessages.markDelivered(message.messageId, provider, null);
-    drained.push(toDeliverable(message));
-  }
+  const claimed = repos.agentMessages.claimPendingForRecipient(agentId, provider);
   repos.agents.touch(agentId);
-  return drained;
+  return claimed.map(toDeliverable);
 }
 
 /**

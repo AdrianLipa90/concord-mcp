@@ -4,8 +4,8 @@ import { resolveAgentId, sessionStartAgentId } from '../../src/cli/agent-identit
 
 describe('resolveAgentId', () => {
   it('derives identity from the session alone, so plain `claude` needs no setup', () => {
-    expect(resolveAgentId(undefined, { CLAUDE_CODE_SESSION_ID: 'a1b2c3d4-e5f6-7890' })).toBe(
-      'claude-code:a1b2c3d4',
+    expect(resolveAgentId(undefined, { CLAUDE_CODE_SESSION_ID: 'a1b2c3d4-e5f6-7890' })).toMatch(
+      /^claude-code:[0-9a-f]{8}$/,
     );
   });
 

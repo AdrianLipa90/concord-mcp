@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { z } from 'zod';
 
@@ -13,7 +13,7 @@ const hookSessionSchema = z.object({ session_id: z.string().optional() }).loose(
  * that cannot identify itself should fall through to the other strategies
  * rather than fail the tool call it is attached to.
  */
-export function hookSessionId(rawJson: string): string | undefined {
+function hookSessionId(rawJson: string): string | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawJson);
@@ -26,13 +26,21 @@ export function hookSessionId(rawJson: string): string | undefined {
   return sessionId === undefined || sessionId === '' ? undefined : sessionId;
 }
 
-/** `codex:019fd356` — a stable agent id for one session of one client. */
-export function agentIdForSession(kind: string, sessionId: string | undefined): string {
-  const slug = (sessionId ?? '')
-    .replace(/[^0-9a-z]/gi, '')
-    .slice(0, 8)
-    .toLowerCase();
-  return `${kind}:${slug === '' ? randomBytes(4).toString('hex') : slug}`;
+/**
+ * A stable agent id for one session of one client, e.g. `codex:4f2a91c7`.
+ *
+ * Hashed rather than truncated. Codex session ids are UUIDv7, whose leading
+ * hex digits are a millisecond clock: the first eight advance only once per
+ * ~65 seconds, so truncating them gave two Codex sessions started in the same
+ * minute the same id — and therefore the same inbox.
+ */
+function agentIdForSession(kind: string, sessionId: string | undefined): string {
+  const id = sessionId?.trim() ?? '';
+  const slug =
+    id === ''
+      ? randomBytes(4).toString('hex')
+      : createHash('sha256').update(id).digest('hex').slice(0, 8);
+  return `${kind}:${slug}`;
 }
 
 /**

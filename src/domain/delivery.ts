@@ -23,9 +23,9 @@ export type Transport = (typeof transports)[number];
  * difference between "queued" and "silently ignored for an hour".
  */
 export const reaches = ['busy', 'idle'] as const;
-export type Reach = (typeof reaches)[number];
+type Reach = (typeof reaches)[number];
 
-export interface EndpointCapability {
+interface EndpointCapability {
   transport: Transport;
   reach: readonly Reach[];
 }
@@ -51,7 +51,7 @@ export function encodeCapabilities(capability: EndpointCapability): string[] {
 }
 
 /** Read reach back off a stored endpoint. */
-export function decodeReach(capabilities: readonly string[]): Reach[] {
+function decodeReach(capabilities: readonly string[]): Reach[] {
   return reaches.filter((reach) => capabilities.includes(reach));
 }
 

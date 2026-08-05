@@ -5,6 +5,7 @@ import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { renderHookPayload, renderMonitorLines } from '../../src/domain/pull-inbox.js';
 import { CONCORD_SERVER_INSTRUCTIONS } from '../../src/install/instructions.js';
 import { drainInbox, registerPullEndpoint } from '../../src/cli/commands/inbox.js';
+import { sessionStartAgentId } from '../../src/cli/agent-identity.js';
 import { endpointPromptable, handleSendAgentMessage } from '../../src/tools/agent-messages.js';
 
 function registerAgent(repos: Repositories, agentId: string): void {
@@ -151,5 +152,28 @@ describe('pull-transport inbox', () => {
 
     expect(body).not.toContain('not an instruction from your operator');
     expect(body).toContain('[concord from alpha id=m1]');
+  });
+
+  it('gives two sessions started in the same minute different identities', () => {
+    // Codex session ids are UUIDv7: the leading hex is a millisecond clock, so
+    // the first eight characters only change about once a minute.
+    const a = sessionStartAgentId('019fd3d0-75d2-7211-b743-d770c8c76fc6', {});
+    const b = sessionStartAgentId('019fd3d0-9999-7211-b743-000000000000', {});
+
+    expect(a).not.toBe(b);
+  });
+
+  it('never hands the same message to two overlapping drains', () => {
+    // A Claude Code session drains from a 2s monitor poll and a PostToolUse
+    // hook at once; a duplicate would show the agent the same message twice.
+    registerPullEndpoint(repos, 'beta', 'claude-code');
+    send(repos, 'only once please', 'key-1');
+
+    const first = drainInbox(repos, 'beta', 'claude-code');
+    const second = drainInbox(repos, 'beta', 'claude-code');
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(0);
+    expect(repos.agentMessages.listEvents(first[0]?.messageId ?? '')).toHaveLength(2);
   });
 });

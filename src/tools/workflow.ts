@@ -604,8 +604,11 @@ export function registerWorkflowTools(
             {
               type: 'text',
               text: withWorkspaceText(
-                `${args.operation ?? 'prompt'} ${result.message.messageId}; queued for ` +
-                  `${result.message.recipientAgentId}. ${result.outlook}`,
+                result.message.status === 'pending'
+                  ? `${args.operation ?? 'prompt'} ${result.message.messageId}; queued for ` +
+                    `${result.message.recipientAgentId}. ${result.outlook}`
+                  : `${args.operation ?? 'prompt'} ${result.message.messageId}; status ` +
+                    `${result.message.status}.`,
                 workspace,
               ),
             },

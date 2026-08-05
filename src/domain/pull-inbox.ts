@@ -15,9 +15,6 @@ export interface DeliverableMessage {
   content: string;
 }
 
-export const pullChannels = ['post-tool-use', 'stop', 'monitor'] as const;
-export type PullChannel = (typeof pullChannels)[number];
-
 /**
  * Framing is deliberately terse. Every delivery pays for it, and the standing
  * explanation — that a relayed message is peer information rather than an
@@ -31,7 +28,7 @@ function renderMessage(message: DeliverableMessage): string {
 }
 
 /** The human-readable block shared by every channel. */
-export function renderInboxBody(messages: readonly DeliverableMessage[]): string {
+function renderInboxBody(messages: readonly DeliverableMessage[]): string {
   return messages.map(renderMessage).join('\n\n');
 }
 
@@ -50,7 +47,7 @@ export function renderMonitorLines(messages: readonly DeliverableMessage[]): str
  * only need to append context.
  */
 export function renderHookPayload(
-  channel: Exclude<PullChannel, 'monitor'>,
+  channel: 'post-tool-use' | 'stop',
   messages: readonly DeliverableMessage[],
 ): string {
   const body = renderInboxBody(messages);
