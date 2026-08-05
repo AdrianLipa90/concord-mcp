@@ -11,17 +11,17 @@ import type { TelemetryClient } from './client.js';
 const responseSchema = z
   .object({
     id: z.union([z.string(), z.number()]),
-    result: z.object({ isError: z.boolean().optional() }).passthrough().optional(),
-    error: z.object({ code: z.number() }).passthrough().optional(),
+    result: z.object({ isError: z.boolean().optional() }).loose().optional(),
+    error: z.object({ code: z.number() }).loose().optional(),
   })
-  .passthrough();
+  .loose();
 const callRequestSchema = z
   .object({
     id: z.union([z.string(), z.number()]),
     method: z.literal('tools/call'),
-    params: z.object({ name: z.string() }).passthrough(),
+    params: z.object({ name: z.string() }).loose(),
   })
-  .passthrough();
+  .loose();
 
 interface PendingCall {
   operation: string;

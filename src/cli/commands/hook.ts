@@ -13,9 +13,9 @@ import { checkFileOverlaps } from './check.js';
  * Everything else is passed through and ignored. */
 const preToolUsePayloadSchema = z
   .object({
-    tool_input: z.object({ file_path: z.string().optional() }).passthrough().optional(),
+    tool_input: z.object({ file_path: z.string().optional() }).loose().optional(),
   })
-  .passthrough();
+  .loose();
 
 export interface HookDecision {
   /** True → deny the tool call (exit 2). */
@@ -74,7 +74,7 @@ const sessionStartPayloadSchema = z
     session_id: z.string().optional(),
     cwd: z.string().optional(),
   })
-  .passthrough();
+  .loose();
 
 /**
  * A stable per-session agent id for Claude Code. Derived from the session id so
