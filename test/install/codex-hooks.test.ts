@@ -42,6 +42,34 @@ describe('upsertCodexHooks', () => {
     expect(result.match(/\[\[hooks\.SessionStart\]\]/gu)).toHaveLength(1);
   });
 
+  it('keeps hook trust that Codex appended inside the block', () => {
+    // Codex writes trust into config.toml at EOF, which lands inside our fence
+    // because the end marker is the last line. Losing it silently re-prompts.
+    const trusted = upsertCodexHooks(undefined).replace(
+      '# <<< concord hooks <<<',
+      '[hooks.state."/Users/me/.codex/config.toml:session_start:0:0"]\n' +
+        'trusted_hash = "sha256:abc123"\n' +
+        '# <<< concord hooks <<<',
+    );
+
+    const result = upsertCodexHooks(trusted);
+
+    expect(result).toContain('trusted_hash = "sha256:abc123"');
+    expect(result).toContain('[[hooks.SessionStart]]');
+  });
+
+  it('moves preserved trust outside the fence so later rewrites cannot reach it', () => {
+    const trusted = upsertCodexHooks(undefined).replace(
+      '# <<< concord hooks <<<',
+      '[hooks.state."x:stop:0:0"]\ntrusted_hash = "sha256:def456"\n# <<< concord hooks <<<',
+    );
+    const once = upsertCodexHooks(trusted);
+
+    expect(once.indexOf('# <<< concord hooks <<<')).toBeLessThan(once.indexOf('trusted_hash'));
+    // And it survives every subsequent run unchanged.
+    expect(upsertCodexHooks(once)).toBe(once);
+  });
+
   it('composes with the MCP server table without either clobbering the other', () => {
     const result = upsertCodexMcpServer(upsertCodexHooks('model = "gpt-5.6"\n'));
 

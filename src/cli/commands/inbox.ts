@@ -144,7 +144,14 @@ export function registerInboxCommand(program: Command): void {
         ...(options.fromHook === true ? { hookPayload: readHookPayload() ?? '' } : {}),
       });
       registerPullEndpoint(context.repos, agentId, options.provider);
-      process.stdout.write(`Concord: ${agentId} can now receive live messages.\n`);
+      // Name the id, not just the capability. Only this id has a delivery
+      // endpoint, so an agent that lets start_work mint a fresh one becomes
+      // unreachable while still looking registered.
+      process.stdout.write(
+        `Concord: this session is agent \`${agentId}\` and can receive live messages from other ` +
+          `agents. Pass agent_id="${agentId}" to every Concord tool call; do not invent a ` +
+          'different id.\n',
+      );
     });
 
   inbox
