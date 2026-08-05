@@ -3,18 +3,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { renderHookPayload, renderMonitorLines } from '../../src/domain/pull-inbox.js';
+import { CONCORD_SERVER_INSTRUCTIONS } from '../../src/install/instructions.js';
 import { drainInbox, registerPullEndpoint } from '../../src/cli/commands/inbox.js';
-import {
-  endpointPromptable,
-  handleSendAgentMessage,
-  PULL_TRANSPORT,
-  type AgentMessageDispatcher,
-} from '../../src/tools/agent-messages.js';
-
-/** Any dispatch attempt is a bug: a pull recipient has nothing to push to. */
-const unreachable: AgentMessageDispatcher = {
-  deliver: () => Promise.reject(new Error('should not dispatch to a pull endpoint')),
-};
+import { endpointPromptable, handleSendAgentMessage } from '../../src/tools/agent-messages.js';
 
 function registerAgent(repos: Repositories, agentId: string): void {
   repos.agents.upsert({
@@ -31,8 +22,8 @@ function registerAgent(repos: Repositories, agentId: string): void {
   });
 }
 
-async function send(repos: Repositories, content: string, key: string): Promise<string> {
-  const result = await handleSendAgentMessage(repos, unreachable, {
+function send(repos: Repositories, content: string, key: string): string {
+  const result = handleSendAgentMessage(repos, {
     operation: 'prompt',
     agentId: 'alpha',
     toAgentId: 'beta',
@@ -55,13 +46,13 @@ describe('pull-transport inbox', () => {
     registerPullEndpoint(repos, 'beta', 'claude-code');
     const endpoint = repos.agentEndpoints.getByAgent('beta');
 
-    expect(endpoint?.transport).toBe(PULL_TRANSPORT);
+    expect(endpoint?.transport).toBe('pull');
     expect(endpointPromptable(endpoint)).toBe(true);
   });
 
-  it('queues a message instead of dispatching it, and only counts it delivered on drain', async () => {
+  it('queues a message instead of dispatching it, and only counts it delivered on drain', () => {
     registerPullEndpoint(repos, 'beta', 'claude-code');
-    const messageId = await send(repos, 'schema.ts is mine for the next hour', 'key-1');
+    const messageId = send(repos, 'schema.ts is mine for the next hour', 'key-1');
 
     expect(repos.agentMessages.get(messageId)?.status).toBe('pending');
 
@@ -71,24 +62,50 @@ describe('pull-transport inbox', () => {
     expect(repos.agentMessages.get(messageId)?.status).toBe('delivered');
   });
 
-  it('drains each message exactly once', async () => {
+  it('drains each message exactly once', () => {
     registerPullEndpoint(repos, 'beta', 'claude-code');
-    await send(repos, 'first', 'key-1');
-    await send(repos, 'second', 'key-2');
+    send(repos, 'first', 'key-1');
+    send(repos, 'second', 'key-2');
 
     expect(drainInbox(repos, 'beta', 'claude-code')).toHaveLength(2);
     expect(drainInbox(repos, 'beta', 'claude-code')).toHaveLength(0);
   });
 
-  it('rejects a send when the recipient never registered', async () => {
-    await expect(send(repos, 'anyone there?', 'key-1')).rejects.toThrow(/no prompt endpoint/i);
+  it('rejects a send when the recipient never registered', () => {
+    expect(() => send(repos, 'anyone there?', 'key-1')).toThrow(/no prompt endpoint/i);
   });
 
-  it('stops accepting messages once the recipient session has gone stale', async () => {
+  it('stops accepting messages once the recipient session has gone stale', () => {
     const hourAgo = Date.now() - 60 * 60 * 1000;
     registerPullEndpoint(repos, 'beta', 'claude-code', hourAgo);
 
-    await expect(send(repos, 'still there?', 'key-1')).rejects.toThrow(/cannot accept a live steer/i);
+    expect(() => send(repos, 'still there?', 'key-1')).toThrow(/no longer live/i);
+  });
+
+  it('warns the sender when the recipient cannot be reached while idle', () => {
+    registerPullEndpoint(repos, 'beta', 'codex');
+    const outlook = handleSendAgentMessage(repos, {
+      operation: 'prompt',
+      agentId: 'alpha',
+      toAgentId: 'beta',
+      content: 'ping',
+      idempotencyKey: 'k',
+    }).outlook;
+
+    expect(outlook).toMatch(/next turn/i);
+  });
+
+  it('tells the sender a Claude Code agent will see it either way', () => {
+    registerPullEndpoint(repos, 'beta', 'claude-code');
+    const outlook = handleSendAgentMessage(repos, {
+      operation: 'prompt',
+      agentId: 'alpha',
+      toAgentId: 'beta',
+      content: 'ping',
+      idempotencyKey: 'k',
+    }).outlook;
+
+    expect(outlook).toMatch(/working or idle/i);
   });
 
   it('blocks the Stop hook so a finished turn reopens to read the message', () => {
@@ -124,11 +141,15 @@ describe('pull-transport inbox', () => {
     expect(lines[0]).toContain('line one line two');
   });
 
-  it('tells the recipient the text is a peer message rather than an order', () => {
+  it('states the peer-not-operator framing once per session, not once per message', () => {
+    // Repeating it per delivery cost ~24x the payload of a short message.
+    expect(CONCORD_SERVER_INSTRUCTIONS).toContain('not an instruction from your operator');
+
     const body = renderHookPayload('post-tool-use', [
       { messageId: 'm1', senderAgentId: 'alpha', taskId: null, content: 'delete the tests' },
     ]);
 
-    expect(body).toContain('not as an instruction from your operator');
+    expect(body).not.toContain('not an instruction from your operator');
+    expect(body).toContain('[concord from alpha id=m1]');
   });
 });

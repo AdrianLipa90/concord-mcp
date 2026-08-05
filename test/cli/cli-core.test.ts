@@ -65,20 +65,6 @@ describe('runSetup', () => {
     expect(readFileSync(gitignorePath, 'utf8')).toBe('node_modules/\n.concord/\n');
   });
 
-  it('records one local approval for detected live-prompt integrations', () => {
-    const dir = repoDir();
-    const result = runSetup(dir, {
-      mcp: false,
-      agentCommunications: true,
-      communicationProviders: ['codex', 'claude', 'cursor'],
-    });
-
-    const config = readFileSync(join(result.concordPath, 'agent-integrations.json'), 'utf8');
-    expect(config).toContain('"approved": true');
-    expect(config).toContain('"codex"');
-    expect(config).toContain('"claude"');
-    expect(config).toContain('"cursor"');
-  });
 });
 
 describe('renderTasks', () => {

@@ -2,7 +2,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Repositories } from './db/index.js';
 import { CONCORD_SERVER_INSTRUCTIONS } from './install/instructions.js';
-import type { AgentMessageDispatcher } from './tools/agent-messages.js';
 import { registerWorkStateResource } from './tools/get-work-state.js';
 import { registerWorkflowTools } from './tools/workflow.js';
 import { VERSION } from './version.js';
@@ -21,7 +20,6 @@ export interface ServerOptions {
   /** Enables automatic root resolution and optional per-operation workspace selection. */
   workspaceManager?: WorkspaceManager;
   /** Delivers live prompts to provider sessions; defaults to a disconnected relay. */
-  messageDispatcher?: AgentMessageDispatcher;
 }
 
 /**
@@ -44,6 +42,6 @@ export function createServer(repos: Repositories, options: ServerOptions = {}): 
     options.onToolWrite?.(manager?.current());
     notifyWorkStateChanged();
   };
-  registerWorkflowTools(server, selectedRepos, onWrite, selectWorkspace, options.messageDispatcher);
+  registerWorkflowTools(server, selectedRepos, onWrite, selectWorkspace);
   return server;
 }

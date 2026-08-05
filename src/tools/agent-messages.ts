@@ -6,24 +6,7 @@ import type {
   AgentMessageRecord,
   Repositories,
 } from '../db/index.js';
-
-export interface AgentDeliveryRequest {
-  messageId: string;
-  senderAgentId: string;
-  recipientAgentId: string;
-  content: string;
-  endpoint: AgentEndpointRecord;
-  activeTurn: boolean;
-}
-
-export interface AgentDeliveryReceipt {
-  provider: string;
-  receipt?: string | undefined;
-}
-
-export interface AgentMessageDispatcher {
-  deliver(request: AgentDeliveryRequest): Promise<AgentDeliveryReceipt>;
-}
+import { deliveryOutlook, transports } from '../domain/delivery.js';
 
 export class AgentMessageDeliveryError extends Error {
   constructor(
@@ -49,27 +32,21 @@ export interface SendAgentMessageInput {
 export interface SendAgentMessageResult {
   message: AgentMessageRecord;
   idempotentReplay: boolean;
+  /** What the sender should expect about when the recipient will see this. */
+  outlook: string;
 }
 
 /**
- * Transport for recipients that cannot be pushed to. No coding agent exposes an
- * API for injecting a prompt into a session it is already running, so the
- * recipient instead drains this queue from inside its own session (see
- * `concord inbox drain` and the bundled Claude Code plugin). The pending message
- * row *is* the queue; delivery is recorded when the recipient actually reads it.
+ * Whether a registered endpoint can still take a message. A lease that has run
+ * out means the session is gone; queueing for it would strand the message.
  */
-export const PULL_TRANSPORT = 'pull';
-
-/** Capabilities a pull endpoint advertises so it counts as promptable. */
-export const PULL_CAPABILITIES = ['steer', PULL_TRANSPORT] as const;
-
 export function endpointPromptable(
   endpoint: AgentEndpointRecord | undefined,
   now = Date.now(),
 ): boolean {
   return (
     endpoint?.status === 'connected' &&
-    endpoint.capabilities.includes('steer') &&
+    transports.some((transport) => endpoint.capabilities.includes(transport)) &&
     (endpoint.expiresAt === null || Date.parse(endpoint.expiresAt) > now)
   );
 }
@@ -79,16 +56,6 @@ function required(value: string | undefined, field: string, operation: string): 
     throw new Error(`${field} is required when update_work operation is ${operation}.`);
   }
   return value;
-}
-
-export function frameAgentMessage(message: AgentMessageRecord): string {
-  const task = message.taskId === null ? '' : ` Task: ${message.taskId}.`;
-  return (
-    `[Concord message ${message.messageId} from ${message.senderAgentId}.${task}]\n` +
-    `${message.content}\n\n` +
-    `Reply with update_work operation="reply", reply_to_message_id="${message.messageId}", ` +
-    'your agent_id, content, and a new idempotency_key.'
-  );
 }
 
 function fail(
@@ -101,30 +68,10 @@ function fail(
   throw new AgentMessageDeliveryError(code, message.messageId, detail);
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
-          reject(new Error('delivery timed out'));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
-  }
-}
-
-export async function handleSendAgentMessage(
+export function handleSendAgentMessage(
   repos: Repositories,
-  dispatcher: AgentMessageDispatcher,
   input: SendAgentMessageInput,
-  timeoutMs = 3_000,
-): Promise<SendAgentMessageResult> {
+): SendAgentMessageResult {
   const sender = repos.agents.get(input.agentId);
   if (sender === undefined) {
     throw new AgentMessageDeliveryError(
@@ -207,7 +154,14 @@ export async function handleSendAgentMessage(
         replay.errorDetail ?? `Message ${replay.messageId} previously failed delivery.`,
       );
     }
-    if (replay.status !== 'pending') return { message: replay, idempotentReplay: true };
+    if (replay.status !== 'pending') {
+      const known = repos.agentEndpoints.getByAgent(recipientAgentId);
+      return {
+        message: replay,
+        idempotentReplay: true,
+        outlook: deliveryOutlook(known?.capabilities ?? []),
+      };
+    }
     message = replay;
     idempotentReplay = true;
   } else {
@@ -231,51 +185,21 @@ export async function handleSendAgentMessage(
     );
   }
   if (!endpointPromptable(endpoint)) {
-    const code: AgentMessageErrorCode = endpoint.capabilities.includes('steer')
-      ? 'target_unreachable'
-      : 'capability_unavailable';
-    fail(repos, message, code, `Agent ${recipientAgentId} cannot accept a live steer.`);
-  }
-
-  // A pull recipient has no socket to push to: leave the row pending so the
-  // recipient's own session can drain it, and report it as queued.
-  if (endpoint.transport === PULL_TRANSPORT) {
-    if (parent !== undefined) {
-      repos.agentMessages.markReplied(parent.messageId);
-    }
-    repos.agents.touch(input.agentId);
-    return { message, idempotentReplay };
-  }
-
-  let receipt: AgentDeliveryReceipt;
-  try {
-    receipt = await withTimeout(
-      dispatcher.deliver({
-        messageId: message.messageId,
-        senderAgentId: message.senderAgentId,
-        recipientAgentId: message.recipientAgentId,
-        content: frameAgentMessage(message),
-        endpoint,
-        activeTurn: endpoint.capabilities.includes('active-turn'),
-      }),
-      timeoutMs,
+    fail(
+      repos,
+      message,
+      'target_unreachable',
+      `Agent ${recipientAgentId} is registered but its session is no longer live.`,
     );
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    const code: AgentMessageErrorCode =
-      detail === 'delivery timed out' ? 'delivery_timeout' : 'target_unreachable';
-    fail(repos, message, code, detail);
   }
-  const delivered = repos.agentMessages.markDelivered(
-    message.messageId,
-    endpoint.provider,
-    receipt.receipt ?? null,
-  );
+
+  // The pending row is the queue. Delivery is recorded when the recipient
+  // actually reads it, so `delivered` never overstates what the agent has seen.
   if (parent !== undefined) {
     repos.agentMessages.markReplied(parent.messageId);
   }
   repos.agents.touch(input.agentId);
-  return { message: delivered, idempotentReplay };
+  return { message, idempotentReplay, outlook: deliveryOutlook(endpoint.capabilities) };
 }
 
 export interface AgentCommunicationView {

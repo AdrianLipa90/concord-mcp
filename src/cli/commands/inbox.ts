@@ -5,12 +5,12 @@ import type { Command } from '@commander-js/extra-typings';
 
 import { databasePath, resolveRepoRoot } from '../../config/paths.js';
 import type { Repositories } from '../../db/index.js';
+import { capabilityFor, encodeCapabilities } from '../../domain/delivery.js';
 import {
   renderHookPayload,
   renderMonitorLines,
   type DeliverableMessage,
 } from '../../domain/pull-inbox.js';
-import { PULL_CAPABILITIES, PULL_TRANSPORT } from '../../tools/agent-messages.js';
 import { resolveAgentId } from '../agent-identity.js';
 import { openContext } from '../context.js';
 
@@ -45,14 +45,15 @@ export function registerPullEndpoint(
       status: 'active',
     });
   }
+  const capability = capabilityFor(provider);
   const existing = repos.agentEndpoints.getByAgent(agentId);
   repos.agentEndpoints.upsert({
     endpointId: existing?.endpointId ?? randomUUID(),
     agentId,
     provider,
-    transport: PULL_TRANSPORT,
-    capabilities: [...PULL_CAPABILITIES],
-    address: `${PULL_TRANSPORT}:${agentId}`,
+    transport: capability.transport,
+    capabilities: encodeCapabilities(capability),
+    address: `${capability.transport}:${agentId}`,
     credentialHash: existing?.credentialHash ?? randomBytes(32).toString('hex'),
     status: 'connected',
     expiresAt: new Date(now + PULL_ENDPOINT_TTL_MS).toISOString(),

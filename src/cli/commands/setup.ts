@@ -1,16 +1,8 @@
 import type { Command } from '@commander-js/extra-typings';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline/promises';
 
 import { writeArtifacts } from '../../artifacts/index.js';
-import { concordDir, resolveRepoRoot } from '../../config/paths.js';
-import {
-  detectCommunicationProviders,
-  readAgentCommunicationConfig,
-  writeAgentCommunicationConfig,
-  type CommunicationProvider,
-} from '../../install/agent-communications.js';
 import { installClaudeHook } from '../../install/claude-hooks.js';
 import { installCodexHooks, installCodexMcpConfig } from '../../install/codex-config.js';
 import { installConcord } from '../../install/index.js';
@@ -22,8 +14,6 @@ const CONCORD_GITIGNORE_ENTRY = '.concord/';
 export interface SetupOptions {
   claudeHooks?: boolean;
   mcp?: boolean;
-  agentCommunications?: boolean;
-  communicationProviders?: readonly CommunicationProvider[];
   env?: NodeJS.ProcessEnv;
 }
 
@@ -32,7 +22,6 @@ export interface SetupResult {
   workspaceId: string;
   concordPath: string;
   written: string[];
-  communicationProviders: CommunicationProvider[];
 }
 
 /** Ensure Concord's generated workspace is ignored without changing other rules. */
@@ -67,40 +56,13 @@ export function runSetup(cwd: string, options: SetupOptions = {}): SetupResult {
     // can receive a message from another agent.
     written.push(installCodexHooks(env));
   }
-  const communicationProviders =
-    options.communicationProviders === undefined
-      ? detectCommunicationProviders(ctx.repoRoot, env)
-      : [...options.communicationProviders];
-  if (options.agentCommunications !== undefined) {
-    written.push(
-      writeAgentCommunicationConfig(
-        ctx.concordPath,
-        options.agentCommunications,
-        communicationProviders,
-      ),
-    );
-  }
-
   return {
     repoRoot: ctx.repoRoot,
     workspaceId: ctx.workspaceId,
     concordPath: ctx.concordPath,
     // A file touched by two installers is still one file to the reader.
     written: [...new Set(written)],
-    communicationProviders,
   };
-}
-
-async function askToInstallAgentCommunications(providers: readonly string[]): Promise<boolean> {
-  const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const answer = await prompt.question(
-      `Enable live inter-agent prompting for detected clients (${providers.join(', ')})? [Y/n] `,
-    );
-    return !['n', 'no'].includes(answer.trim().toLowerCase());
-  } finally {
-    prompt.close();
-  }
 }
 
 export function registerSetupCommand(program: Command): void {
@@ -112,30 +74,11 @@ export function registerSetupCommand(program: Command): void {
       'also install an opt-in Claude Code PreToolUse overlap hook into .claude/settings.json',
     )
     .option('--no-mcp', 'skip MCP client registration; write local state and instructions only')
-    .option(
-      '--agent-comms',
-      'approve and install the local live-prompt relay integration without prompting',
-    )
-    .action(async (options) => {
+    .action((options) => {
       try {
         const setupOptions: SetupOptions = { mcp: options.mcp };
         if (options.claudeHooks === true) {
           setupOptions.claudeHooks = true;
-        }
-        const repoRoot = resolveRepoRoot(process.cwd(), process.env);
-        const concordPath = concordDir(repoRoot);
-        const detected = detectCommunicationProviders(repoRoot);
-        if (options.agentComms === true) {
-          setupOptions.agentCommunications = true;
-          setupOptions.communicationProviders = detected;
-        } else if (
-          process.stdin.isTTY &&
-          process.stdout.isTTY &&
-          detected.length > 0 &&
-          readAgentCommunicationConfig(concordPath) === undefined
-        ) {
-          setupOptions.agentCommunications = await askToInstallAgentCommunications(detected);
-          setupOptions.communicationProviders = detected;
         }
         const result = runSetup(process.cwd(), setupOptions);
         process.stdout.write(
@@ -158,11 +101,6 @@ export function registerSetupCommand(program: Command): void {
             'Restart your coding client so it reloads the project MCP server.\n' +
               'Codex: run /hooks once and trust the Concord hooks. Until you do, Codex skips ' +
               'them silently and cannot receive messages from other agents.\n',
-          );
-        }
-        if (setupOptions.agentCommunications === true) {
-          process.stdout.write(
-            `Live prompting approved for: ${result.communicationProviders.join(', ')}. Existing sessions must be restarted once.\n`,
           );
         }
       } catch (error) {
