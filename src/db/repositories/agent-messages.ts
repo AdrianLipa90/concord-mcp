@@ -25,6 +25,8 @@ export interface AgentMessageRepository {
   get(messageId: string): AgentMessageRecord | undefined;
   getByIdempotency(senderAgentId: string, idempotencyKey: string): AgentMessageRecord | undefined;
   listByAgent(agentId: string): AgentMessageRecord[];
+  /** Undelivered messages addressed to `agentId`, oldest first. */
+  listPendingForRecipient(agentId: string): AgentMessageRecord[];
   listByTask(taskId: string): AgentMessageRecord[];
   listThread(messageId: string): AgentMessageRecord[];
   markDelivered(messageId: string, provider: string, receipt: string | null): AgentMessageRecord;
@@ -57,6 +59,11 @@ export function createAgentMessageRepository(db: ConcordDatabase): AgentMessageR
   const listByAgentStmt = db.prepare(`
     SELECT * FROM agent_messages
     WHERE sender_agent_id = ? OR recipient_agent_id = ?
+    ORDER BY created_at, message_id
+  `);
+  const listPendingStmt = db.prepare(`
+    SELECT * FROM agent_messages
+    WHERE recipient_agent_id = ? AND status = 'pending'
     ORDER BY created_at, message_id
   `);
   const listByTaskStmt = db.prepare(`
@@ -129,6 +136,10 @@ export function createAgentMessageRepository(db: ConcordDatabase): AgentMessageR
     },
     listByAgent(agentId) {
       const raw: unknown = listByAgentStmt.all(agentId, agentId);
+      return rawListSchema.parse(raw).map(parseAgentMessageRow);
+    },
+    listPendingForRecipient(agentId) {
+      const raw: unknown = listPendingStmt.all(agentId);
       return rawListSchema.parse(raw).map(parseAgentMessageRow);
     },
     listByTask(taskId) {

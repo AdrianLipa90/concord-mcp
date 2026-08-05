@@ -1,0 +1,35 @@
+{
+  "description": "Concord inter-agent message delivery",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "concord inbox register"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "concord inbox drain --format post-tool-use"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "concord inbox drain --format stop"
+          }
+        ]
+      }
+    ]
+  }
+}

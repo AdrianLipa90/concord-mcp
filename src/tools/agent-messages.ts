@@ -51,6 +51,18 @@ export interface SendAgentMessageResult {
   idempotentReplay: boolean;
 }
 
+/**
+ * Transport for recipients that cannot be pushed to. No coding agent exposes an
+ * API for injecting a prompt into a session it is already running, so the
+ * recipient instead drains this queue from inside its own session (see
+ * `concord inbox drain` and the bundled Claude Code plugin). The pending message
+ * row *is* the queue; delivery is recorded when the recipient actually reads it.
+ */
+export const PULL_TRANSPORT = 'pull';
+
+/** Capabilities a pull endpoint advertises so it counts as promptable. */
+export const PULL_CAPABILITIES = ['steer', PULL_TRANSPORT] as const;
+
 export function endpointPromptable(
   endpoint: AgentEndpointRecord | undefined,
   now = Date.now(),
@@ -69,7 +81,7 @@ function required(value: string | undefined, field: string, operation: string): 
   return value;
 }
 
-function framedContent(message: AgentMessageRecord): string {
+export function frameAgentMessage(message: AgentMessageRecord): string {
   const task = message.taskId === null ? '' : ` Task: ${message.taskId}.`;
   return (
     `[Concord message ${message.messageId} from ${message.senderAgentId}.${task}]\n` +
@@ -225,6 +237,16 @@ export async function handleSendAgentMessage(
     fail(repos, message, code, `Agent ${recipientAgentId} cannot accept a live steer.`);
   }
 
+  // A pull recipient has no socket to push to: leave the row pending so the
+  // recipient's own session can drain it, and report it as queued.
+  if (endpoint.transport === PULL_TRANSPORT) {
+    if (parent !== undefined) {
+      repos.agentMessages.markReplied(parent.messageId);
+    }
+    repos.agents.touch(input.agentId);
+    return { message, idempotentReplay };
+  }
+
   let receipt: AgentDeliveryReceipt;
   try {
     receipt = await withTimeout(
@@ -232,7 +254,7 @@ export async function handleSendAgentMessage(
         messageId: message.messageId,
         senderAgentId: message.senderAgentId,
         recipientAgentId: message.recipientAgentId,
-        content: framedContent(message),
+        content: frameAgentMessage(message),
         endpoint,
         activeTurn: endpoint.capabilities.includes('active-turn'),
       }),

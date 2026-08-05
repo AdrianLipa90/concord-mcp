@@ -8,6 +8,7 @@ import type { Repositories } from '../../db/index.js';
 import { buildRoster } from '../../domain/presence.js';
 import { openContext } from '../context.js';
 import { checkFileOverlaps } from './check.js';
+import { registerPullEndpoint } from './inbox.js';
 
 /** The subset of Claude Code's PreToolUse payload we need: the edited file path.
  * Everything else is passed through and ignored. */
@@ -81,7 +82,14 @@ const sessionStartPayloadSchema = z
  * the same session always maps to the same identity (SessionStart is idempotent
  * via upsert); falls back to a random suffix when no session id is provided.
  */
-export function sessionStartAgentId(sessionId: string | undefined): string {
+export function sessionStartAgentId(
+  sessionId: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  // An operator-supplied id lets a human name the agents they are coordinating
+  // ("alpha", "reviewer") instead of reading generated session slugs.
+  const explicit = env['CONCORD_AGENT_ID']?.trim();
+  if (explicit !== undefined && explicit !== '') return explicit;
   const slug = (sessionId ?? '')
     .replace(/[^0-9a-z]/gi, '')
     .slice(0, 8)
@@ -123,6 +131,10 @@ export function handleSessionStart(repos: Repositories, rawJson: string): Sessio
     status: 'active',
   });
 
+  // Advertise the session as reachable before any tool call, so a peer that
+  // messages it early gets its message queued rather than rejected.
+  registerPullEndpoint(repos, agentId, 'claude-code');
+
   const others = buildRoster(repos.agents.list(), Date.now()).filter(
     (entry) => entry.agentId !== agentId,
   );
@@ -130,6 +142,8 @@ export function handleSessionStart(repos: Repositories, rawJson: string): Sessio
     `Concord: registered this session as agent \`${agentId}\`. Pass agent_id="${agentId}" to ` +
       'Concord tools (start_work, update_work, finish_work) so your work is attributed and your ' +
       'presence stays live.',
+    'You can receive live messages from other agents in this workspace; they arrive on their own ' +
+      'as relayed context, so you never need to poll for them.',
   ];
   if (others.length === 0) {
     lines.push('No other agents are currently registered.');
