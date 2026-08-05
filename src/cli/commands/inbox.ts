@@ -127,6 +127,19 @@ export function registerInboxCommand(program: Command): void {
     .description('Receive live messages other agents addressed to this session');
 
   inbox
+    .command('status')
+    .description('Exit 0 when this directory is a Concord workspace, 1 otherwise')
+    .action(() => {
+      // Lets the relay monitor bail out of a project that does not use Concord
+      // instead of polling for the life of the session.
+      if (!workspaceExists(process.cwd())) {
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write('Concord workspace present.\n');
+    });
+
+  inbox
     .command('register')
     .description('Advertise this session as able to receive messages by draining them')
     .option('--agent <id>', 'Agent id; defaults to CONCORD_AGENT_ID, then to the current session')
