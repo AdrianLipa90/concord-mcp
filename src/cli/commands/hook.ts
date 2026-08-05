@@ -101,7 +101,7 @@ export interface SessionStartResult {
  * SessionStart JSON payload.
  */
 export function handleSessionStart(repos: Repositories, rawJson: string): SessionStartResult {
-  let parsed: unknown = {};
+  let parsed: unknown;
   try {
     parsed = JSON.parse(rawJson);
   } catch {
