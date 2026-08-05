@@ -216,10 +216,7 @@ function updateRequired<T>(value: T | undefined, field: string, operation: strin
   return value;
 }
 
-export function handleUpdateWork(
-  repos: Repositories,
-  input: UpdateWorkInput,
-): UpdateWorkResult {
+export function handleUpdateWork(repos: Repositories, input: UpdateWorkInput): UpdateWorkResult {
   const operation = input.operation ?? 'record';
   if (operation !== 'record') {
     return handleSendAgentMessage(repos, {
@@ -606,9 +603,9 @@ export function registerWorkflowTools(
               text: withWorkspaceText(
                 result.message.status === 'pending'
                   ? `${args.operation ?? 'prompt'} ${result.message.messageId}; queued for ` +
-                    `${result.message.recipientAgentId}. ${result.outlook}`
+                      `${result.message.recipientAgentId}. ${result.outlook}`
                   : `${args.operation ?? 'prompt'} ${result.message.messageId}; status ` +
-                    `${result.message.status}.`,
+                      `${result.message.status}.`,
                 workspace,
               ),
             },

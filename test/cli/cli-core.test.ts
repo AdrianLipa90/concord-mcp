@@ -64,7 +64,6 @@ describe('runSetup', () => {
 
     expect(readFileSync(gitignorePath, 'utf8')).toBe('node_modules/\n.concord/\n');
   });
-
 });
 
 describe('renderTasks', () => {
