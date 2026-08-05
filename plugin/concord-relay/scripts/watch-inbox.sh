@@ -11,10 +11,9 @@ set -uo pipefail
 CONCORD_BIN="${CONCORD_BIN:-concord}"
 CONCORD_INBOX_POLL_SECONDS="${CONCORD_INBOX_POLL_SECONDS:-2}"
 
-if [[ -z "${CONCORD_AGENT_ID:-}" ]]; then
-  echo "concord-relay: set CONCORD_AGENT_ID to receive messages" >&2
-  exit 0
-fi
+# Identity needs no configuration: Claude Code exports CLAUDE_CODE_SESSION_ID
+# into this process, and `concord inbox drain` derives the agent id from it.
+# CONCORD_AGENT_ID overrides it when a human wants to name the agents.
 
 while true; do
   # Never let a transient failure (a locked database, a mid-write config) kill

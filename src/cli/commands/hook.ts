@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import type { Command } from '@commander-js/extra-typings';
@@ -6,6 +5,7 @@ import { z } from 'zod';
 
 import type { Repositories } from '../../db/index.js';
 import { buildRoster } from '../../domain/presence.js';
+import { sessionStartAgentId } from '../agent-identity.js';
 import { openContext } from '../context.js';
 import { checkFileOverlaps } from './check.js';
 import { registerPullEndpoint } from './inbox.js';
@@ -77,25 +77,7 @@ const sessionStartPayloadSchema = z
   })
   .loose();
 
-/**
- * A stable per-session agent id for Claude Code. Derived from the session id so
- * the same session always maps to the same identity (SessionStart is idempotent
- * via upsert); falls back to a random suffix when no session id is provided.
- */
-export function sessionStartAgentId(
-  sessionId: string | undefined,
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  // An operator-supplied id lets a human name the agents they are coordinating
-  // ("alpha", "reviewer") instead of reading generated session slugs.
-  const explicit = env['CONCORD_AGENT_ID']?.trim();
-  if (explicit !== undefined && explicit !== '') return explicit;
-  const slug = (sessionId ?? '')
-    .replace(/[^0-9a-z]/gi, '')
-    .slice(0, 8)
-    .toLowerCase();
-  return `claude-code:${slug === '' ? randomBytes(4).toString('hex') : slug}`;
-}
+export { sessionStartAgentId };
 
 export interface SessionStartResult {
   agentId: string;

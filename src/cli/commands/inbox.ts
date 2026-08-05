@@ -1,7 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 
 import type { Command } from '@commander-js/extra-typings';
 
+import { databasePath, resolveRepoRoot } from '../../config/paths.js';
 import type { Repositories } from '../../db/index.js';
 import {
   renderHookPayload,
@@ -9,6 +11,7 @@ import {
   type DeliverableMessage,
 } from '../../domain/pull-inbox.js';
 import { PULL_CAPABILITIES, PULL_TRANSPORT } from '../../tools/agent-messages.js';
+import { resolveAgentId } from '../agent-identity.js';
 import { openContext } from '../context.js';
 
 /** How long a registered pull endpoint stays promptable between drains. */
@@ -91,12 +94,35 @@ export function drainInbox(
   return drained;
 }
 
-function resolveAgentId(explicit: string | undefined, env: NodeJS.ProcessEnv): string {
-  const agentId = explicit ?? env['CONCORD_AGENT_ID'];
-  if (agentId === undefined || agentId.trim() === '') {
-    throw new Error('Pass --agent <id> or set CONCORD_AGENT_ID.');
+/**
+ * Whether this repository already uses Concord.
+ *
+ * The relay plugin is installed once and then loads in every session, including
+ * repositories that have nothing to do with Concord. Opening a workspace
+ * creates it, so these commands must check first and stay quiet otherwise —
+ * merely having the plugin installed should never litter unrelated projects
+ * with `.concord/` state.
+ */
+/**
+ * Read a hook payload piped on stdin. Only ever called behind `--from-hook`:
+ * a plugin monitor's stdin may stay open for the life of the session, and
+ * blocking on it there would silently wedge message delivery.
+ */
+function readHookPayload(): string | undefined {
+  if (process.stdin.isTTY) return undefined;
+  try {
+    return readFileSync(0, 'utf8');
+  } catch {
+    return undefined;
   }
-  return agentId;
+}
+
+function workspaceExists(cwd: string): boolean {
+  try {
+    return existsSync(databasePath(resolveRepoRoot(cwd, process.env)));
+  } catch {
+    return false;
+  }
 }
 
 export function registerInboxCommand(program: Command): void {
@@ -107,11 +133,16 @@ export function registerInboxCommand(program: Command): void {
   inbox
     .command('register')
     .description('Advertise this session as able to receive messages by draining them')
-    .option('--agent <id>', 'Agent id; defaults to CONCORD_AGENT_ID')
+    .option('--agent <id>', 'Agent id; defaults to CONCORD_AGENT_ID, then to the current session')
     .option('--provider <name>', 'Client the agent runs in', 'claude-code')
+    .option('--from-hook', 'Read the session id from a hook payload on stdin (Codex)')
     .action((options) => {
+      if (!workspaceExists(process.cwd())) return;
       const context = openContext(process.cwd());
-      const agentId = resolveAgentId(options.agent, process.env);
+      const agentId = resolveAgentId(options.agent, process.env, {
+        kind: options.provider,
+        ...(options.fromHook === true ? { hookPayload: readHookPayload() ?? '' } : {}),
+      });
       registerPullEndpoint(context.repos, agentId, options.provider);
       process.stdout.write(`Concord: ${agentId} can now receive live messages.\n`);
     });
@@ -119,16 +150,21 @@ export function registerInboxCommand(program: Command): void {
   inbox
     .command('drain')
     .description('Print and acknowledge every message waiting for this agent')
-    .option('--agent <id>', 'Agent id; defaults to CONCORD_AGENT_ID')
+    .option('--agent <id>', 'Agent id; defaults to CONCORD_AGENT_ID, then to the current session')
     .option('--provider <name>', 'Client the agent runs in', 'claude-code')
+    .option('--from-hook', 'Read the session id from a hook payload on stdin (Codex)')
     .option(
       '--format <format>',
-      'post-tool-use and stop emit Claude Code hook JSON; monitor emits one line per message; json emits raw records',
+      'post-tool-use and stop emit hook JSON; monitor emits one line per message; json emits raw records',
       'json',
     )
     .action((options) => {
+      if (!workspaceExists(process.cwd())) return;
       const context = openContext(process.cwd());
-      const agentId = resolveAgentId(options.agent, process.env);
+      const agentId = resolveAgentId(options.agent, process.env, {
+        kind: options.provider,
+        ...(options.fromHook === true ? { hookPayload: readHookPayload() ?? '' } : {}),
+      });
       const messages = drainInbox(context.repos, agentId, options.provider);
       // Silence matters: a hook that prints on an empty inbox would inject
       // noise into the session on every single tool call.

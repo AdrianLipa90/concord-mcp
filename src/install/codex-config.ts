@@ -63,6 +63,65 @@ export function upsertCodexMcpServer(existing: string | undefined): string {
   return tail === '' ? `${head}${section}` : `${head}${section}\n${tail}`;
 }
 
+const HOOKS_BEGIN = '# >>> concord hooks >>>';
+const HOOKS_END = '# <<< concord hooks <<<';
+
+/**
+ * Codex passes its session id on stdin rather than in the environment, so every
+ * hook reads the payload to work out which agent it is.
+ */
+const CONCORD_HOOKS_BLOCK = `${HOOKS_BEGIN}
+# Delivers Concord messages from other agents into this session. Remove this
+# block (markers included) to opt out.
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "concord inbox register --from-hook --provider codex"
+
+[[hooks.PostToolUse]]
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "concord inbox drain --from-hook --provider codex --format post-tool-use"
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "concord inbox drain --from-hook --provider codex --format stop"
+${HOOKS_END}`;
+
+/**
+ * Idempotently add Concord's lifecycle hooks to a Codex TOML config.
+ *
+ * The block is fenced by marker comments and appended at the end of the file.
+ * Appending matters: TOML array-of-tables belong to whichever table header
+ * precedes them, so splicing this into the middle would silently re-parent any
+ * following keys.
+ */
+export function upsertCodexHooks(existing: string | undefined): string {
+  const source = existing ?? '';
+  const begin = source.indexOf(HOOKS_BEGIN);
+  const end = source.indexOf(HOOKS_END);
+  if (begin !== -1 && end > begin) {
+    const head = source.slice(0, begin);
+    const tail = source.slice(end + HOOKS_END.length);
+    return `${head}${CONCORD_HOOKS_BLOCK}${tail}`;
+  }
+  const base = source.replace(/\n*$/u, '');
+  return base === '' ? `${CONCORD_HOOKS_BLOCK}\n` : `${base}\n\n${CONCORD_HOOKS_BLOCK}\n`;
+}
+
+/**
+ * Write Concord's hooks into Codex's user-global `config.toml`. Returns the
+ * absolute path written.
+ */
+export function installCodexHooks(env: NodeJS.ProcessEnv = process.env): string {
+  const fullPath = codexConfigFile(env);
+  const existing = existsSync(fullPath) ? readFileSync(fullPath, 'utf8') : undefined;
+  mkdirSync(dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, upsertCodexHooks(existing));
+  return fullPath;
+}
+
 /**
  * Register Concord in Codex's user-global `config.toml` (created if absent),
  * preserving the rest of the file. Returns the absolute path written, since it

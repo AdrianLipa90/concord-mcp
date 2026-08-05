@@ -12,7 +12,7 @@ import {
   type CommunicationProvider,
 } from '../../install/agent-communications.js';
 import { installClaudeHook } from '../../install/claude-hooks.js';
-import { installCodexMcpConfig } from '../../install/codex-config.js';
+import { installCodexHooks, installCodexMcpConfig } from '../../install/codex-config.js';
 import { installConcord } from '../../install/index.js';
 import { McpConfigParseError, installMcpConfigs } from '../../install/mcp-config.js';
 import { openContext } from '../context.js';
@@ -63,6 +63,9 @@ export function runSetup(cwd: string, options: SetupOptions = {}): SetupResult {
   if (options.mcp !== false) {
     written.push(...installMcpConfigs(ctx.repoRoot));
     written.push(installCodexMcpConfig(env));
+    // Codex has no background-monitor equivalent, so hooks are the only way it
+    // can receive a message from another agent.
+    written.push(installCodexHooks(env));
   }
   const communicationProviders =
     options.communicationProviders === undefined
@@ -82,7 +85,8 @@ export function runSetup(cwd: string, options: SetupOptions = {}): SetupResult {
     repoRoot: ctx.repoRoot,
     workspaceId: ctx.workspaceId,
     concordPath: ctx.concordPath,
-    written,
+    // A file touched by two installers is still one file to the reader.
+    written: [...new Set(written)],
     communicationProviders,
   };
 }
@@ -151,7 +155,9 @@ export function registerSetupCommand(program: Command): void {
         }
         if (options.mcp) {
           process.stdout.write(
-            'Restart your coding client so it reloads the project MCP server.\n',
+            'Restart your coding client so it reloads the project MCP server.\n' +
+              'Codex: run /hooks once and trust the Concord hooks. Until you do, Codex skips ' +
+              'them silently and cannot receive messages from other agents.\n',
           );
         }
         if (setupOptions.agentCommunications === true) {
