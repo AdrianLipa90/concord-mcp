@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { writeArtifacts } from '../../artifacts/index.js';
 import { installClaudeHook } from '../../install/claude-hooks.js';
+import { installClaudeRelayPlugin } from '../../install/claude-plugin.js';
 import { installCodexHooks, installCodexMcpConfig } from '../../install/codex-config.js';
 import { installConcord } from '../../install/index.js';
 import { McpConfigParseError, installMcpConfigs } from '../../install/mcp-config.js';
@@ -52,6 +53,11 @@ export function runSetup(cwd: string, options: SetupOptions = {}): SetupResult {
   if (options.mcp !== false) {
     written.push(...installMcpConfigs(ctx.repoRoot));
     written.push(installCodexMcpConfig(env));
+    // Claude Code's half of the relay. Its background monitor is the only
+    // channel that reaches an agent idle at the prompt, and a monitor can only
+    // be declared by a plugin — settings.json cannot express one.
+    const plugin = installClaudeRelayPlugin(import.meta.url, env);
+    if (plugin !== undefined) written.push(plugin);
     // Codex has no background-monitor equivalent, so hooks are the only way it
     // can receive a message from another agent.
     written.push(installCodexHooks(env));
