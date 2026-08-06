@@ -6,6 +6,69 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-06
+
+Inter-agent messages are now actually delivered. 0.6.1 shipped the send path but
+nothing on the other end: `update_work operation="prompt"` failed with
+`Concord relay is not connected`, because the relay assumed an external process
+could push a prompt into a session another process is already running. No coding
+agent exposes that — `claude inject` and `codex inject` are both closed
+unimplemented. The recipient now pulls instead.
+
+### Added
+
+- A pull transport. A send enqueues a pending message; the recipient drains its
+  own inbox from inside its session, and delivery is recorded at drain time, so
+  `delivered` means the agent was actually handed the message.
+- `concord inbox` (`status`, `register`, `drain`) — the receiving half, invoked
+  by client hooks rather than by hand.
+- A Claude Code plugin under `plugin/concord-relay`. Its background monitor is
+  the only channel that reaches an agent sitting idle at the prompt; the
+  `PostToolUse` and `Stop` hooks cover headless `-p` runs, where monitors do not
+  run.
+- Codex lifecycle hooks, installed by `concord setup`. Codex has the same hook
+  surface as Claude Code but no monitor equivalent, so an idle Codex session
+  does not see a queued message until its next turn.
+- Endpoints carry real reach (`busy`, `idle`), and `update_work` reports it back
+  so a sender is told when a message will sit unread rather than assuming it
+  landed.
+- Sessions identify themselves with no configuration, from
+  `CLAUDE_CODE_SESSION_ID` or a Codex hook payload. `CONCORD_AGENT_ID` still
+  overrides it when a human wants to name the agents they are coordinating.
+
+### Changed
+
+- Relayed messages are framed as peer information rather than instructions, and
+  that framing is stated once in the server instructions instead of on every
+  delivery — it had been costing roughly 24x the payload of a short message.
+- `concord setup` warns that Codex skips untrusted hooks silently until you run
+  `/hooks` once and trust them.
+
+### Removed
+
+- **Breaking:** the `@concord-ai/concord-mcp/relay` entry point, along with the
+  socket relay server, wire protocol, credential handshake, and the Claude and
+  Cursor session adapters. They targeted APIs that do not exist. Delivery now
+  routes on `agent_endpoints.transport` instead of a dispatcher.
+- The `--agent-comms` setup flag and `agent-integrations.json`, which existed
+  only to approve that relay.
+
+### Fixed
+
+- `concord setup` no longer wipes Codex hook trust. Codex appends
+  `[hooks.state]` trust hashes to the end of `config.toml`, which landed inside
+  Concord's marker block; rewriting it silently re-prompted for trust, and until
+  granted Codex skipped the hooks without saying so.
+- Agent ids no longer collide. They truncated the session id to eight
+  characters, but Codex ids are UUIDv7 whose leading hex is a millisecond clock
+  — the first eight characters advance only once per ~65 seconds, so two Codex
+  sessions started in the same minute shared an id and an inbox.
+- A message is never delivered twice. Draining now claims each row atomically,
+  which matters because a Claude Code session drains from a monitor poll and a
+  tool-result hook at the same time.
+- The relay monitor exits immediately outside a Concord workspace instead of
+  polling for the life of an unrelated project.
+
 ## [0.6.1] - 2026-07-31
 
 ### Added
