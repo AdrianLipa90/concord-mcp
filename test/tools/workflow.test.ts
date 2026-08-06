@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { createServer } from '../../src/server.js';
-import type { AgentMessageDispatcher } from '../../src/tools/agent-messages.js';
+import { drainInbox, registerPullEndpoint } from '../../src/cli/commands/inbox.js';
 import { PUBLIC_WORKFLOW_TOOLS } from '../../src/tools/workflow.js';
 
 interface Harness {
@@ -13,11 +13,8 @@ interface Harness {
   server: ReturnType<typeof createServer>;
 }
 
-async function connect(
-  repos: Repositories,
-  messageDispatcher?: AgentMessageDispatcher,
-): Promise<Harness> {
-  const server = createServer(repos, messageDispatcher === undefined ? {} : { messageDispatcher });
+async function connect(repos: Repositories): Promise<Harness> {
+  const server = createServer(repos, {});
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'workflow-test', version: '0.0.0' });
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -352,14 +349,8 @@ describe('simplified workflow MCP contract', () => {
     }
   });
 
-  it('steers a busy agent immediately and exposes the durable message thread', async () => {
-    const deliveries: Parameters<AgentMessageDispatcher['deliver']>[0][] = [];
-    const harness = await connect(repos, {
-      deliver(request) {
-        deliveries.push(request);
-        return Promise.resolve({ provider: 'codex', receipt: 'turn-42' });
-      },
-    });
+  it('queues for a registered agent and only counts it delivered once drained', async () => {
+    const harness = await connect(repos);
     try {
       for (const [taskId, agentId] of [
         ['TASK-SENDER', 'codex:sender'],
@@ -370,16 +361,7 @@ describe('simplified workflow MCP contract', () => {
           arguments: { task_id: taskId, title: taskId, kind: 'codex', agent_id: agentId },
         });
       }
-      repos.agentEndpoints.upsert({
-        endpointId: 'endpoint-target',
-        agentId: 'codex:target',
-        provider: 'codex',
-        transport: 'local-socket',
-        capabilities: ['steer', 'start-turn', 'active-turn'],
-        address: '/tmp/concord-target.sock',
-        credentialHash: 'hash',
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      });
+      registerPullEndpoint(repos, 'codex:target', 'codex');
 
       const sent = await harness.client.callTool({
         name: 'update_work',
@@ -394,22 +376,22 @@ describe('simplified workflow MCP contract', () => {
       });
 
       expect(sent.isError).not.toBe(true);
-      expect(deliveries).toHaveLength(1);
-      expect(deliveries[0]).toMatchObject({
-        senderAgentId: 'codex:sender',
-        recipientAgentId: 'codex:target',
-        activeTurn: true,
-      });
-      expect(deliveries[0]?.content).toContain('Please re-check the parser boundary.');
+      // Codex is reachable only between steps of its own work, and the sender
+      // is told so rather than being left to assume it landed.
+      expect(JSON.stringify(sent)).toContain('next turn');
+
       const message = repos.agentMessages.listByTask('TASK-TARGET')[0];
-      expect(message).toMatchObject({ status: 'delivered', providerReceipt: 'turn-42' });
+      expect(message?.status).toBe('pending');
+
+      const drained = drainInbox(repos, 'codex:target', 'codex');
+      expect(drained[0]?.content).toContain('Please re-check the parser boundary.');
+      expect(repos.agentMessages.get(message?.messageId ?? '')?.status).toBe('delivered');
 
       const inspected = await harness.client.callTool({
         name: 'inspect_work',
         arguments: { message_id: message?.messageId },
       });
       expect(inspected.isError).not.toBe(true);
-      expect(JSON.stringify(inspected)).toContain('accepted');
       expect(JSON.stringify(inspected)).toContain('delivered');
     } finally {
       await close(harness);
@@ -417,13 +399,7 @@ describe('simplified workflow MCP contract', () => {
   });
 
   it('records an explicit reply and does not redeliver an idempotent replay', async () => {
-    let deliveryCount = 0;
-    const harness = await connect(repos, {
-      deliver(request) {
-        deliveryCount += 1;
-        return Promise.resolve({ provider: request.endpoint.provider });
-      },
-    });
+    const harness = await connect(repos);
     try {
       for (const agentId of ['codex:a', 'claude:b']) {
         repos.agents.upsert({
@@ -438,16 +414,7 @@ describe('simplified workflow MCP contract', () => {
           summary: null,
           status: 'active',
         });
-        repos.agentEndpoints.upsert({
-          endpointId: `endpoint-${agentId}`,
-          agentId,
-          provider: agentId.split(':')[0] ?? 'agent',
-          transport: 'local-socket',
-          capabilities: ['steer', 'start-turn'],
-          address: `/tmp/${agentId}.sock`,
-          credentialHash: 'hash',
-          expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        });
+        registerPullEndpoint(repos, agentId, agentId.split(':')[0] ?? 'agent');
       }
 
       const promptArguments = {
@@ -459,8 +426,11 @@ describe('simplified workflow MCP contract', () => {
       } as const;
       await harness.client.callTool({ name: 'update_work', arguments: promptArguments });
       await harness.client.callTool({ name: 'update_work', arguments: promptArguments });
-      expect(deliveryCount).toBe(1);
+      expect(repos.agentMessages.listByAgent('codex:a')).toHaveLength(1);
 
+      // A reply is only meaningful once the recipient has actually read the
+      // message, which is what draining records.
+      drainInbox(repos, 'claude:b', 'claude');
       const parent = repos.agentMessages.listByAgent('codex:a')[0];
       const reply = await harness.client.callTool({
         name: 'update_work',
@@ -541,16 +511,7 @@ describe('simplified workflow MCP contract', () => {
         status: 'active',
       });
     }
-    repos.agentEndpoints.upsert({
-      endpointId: 'endpoint-target',
-      agentId: 'codex:target',
-      provider: 'codex',
-      transport: 'local-socket',
-      capabilities: ['steer'],
-      address: '/tmp/target.sock',
-      credentialHash: 'hash',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    });
+    registerPullEndpoint(repos, 'codex:target', 'codex');
     const pending = repos.agentMessages.create({
       messageId: 'pending-message',
       taskId: null,
@@ -560,13 +521,7 @@ describe('simplified workflow MCP contract', () => {
       content: 'Retry me',
       idempotencyKey: 'pending-1',
     });
-    let deliveries = 0;
-    const harness = await connect(repos, {
-      deliver() {
-        deliveries += 1;
-        return Promise.resolve({ provider: 'codex' });
-      },
-    });
+    const harness = await connect(repos);
     try {
       const result = await harness.client.callTool({
         name: 'update_work',
@@ -579,8 +534,10 @@ describe('simplified workflow MCP contract', () => {
         },
       });
       expect(result.isError).not.toBe(true);
-      expect(deliveries).toBe(1);
-      expect(repos.agentMessages.get(pending.messageId)?.status).toBe('delivered');
+      // A retry of a still-pending message re-uses the queued row rather than
+      // enqueueing a duplicate the recipient would read twice.
+      expect(repos.agentMessages.listByAgent('codex:target')).toHaveLength(1);
+      expect(repos.agentMessages.get(pending.messageId)?.status).toBe('pending');
       expect(JSON.stringify(result)).toContain('"idempotent_replay":true');
     } finally {
       await close(harness);

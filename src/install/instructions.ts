@@ -1,3 +1,5 @@
+import { RELAYED_MESSAGE_GUIDANCE } from '../domain/pull-inbox.js';
+
 /** Version of the generated agent workflow contract. */
 export const CONCORD_INSTRUCTION_VERSION = '2';
 
@@ -7,7 +9,8 @@ export const CONCORD_SERVER_INSTRUCTIONS = `Concord coordinates coding agents th
 - Use inspect_work to read workspace, task, agent, or message context. Use update_work for durable progress or to prompt/reply to another promptable workspace agent, including while that agent is busy.
 - Use transfer_work for assignment, acceptance, decline, release, reassignment, evidence-bearing handoff offers, and reopening.
 - Call finish_work before finishing, review, or closure with changed files, tests, assumptions, decisions, risks, and provenance.
-Keep claims small and resolve reported overlaps before editing.`;
+Keep claims small and resolve reported overlaps before editing.
+${RELAYED_MESSAGE_GUIDANCE}`;
 
 /** Canonical fallback block written into supported client instruction files. */
 export const CONCORD_INSTRUCTIONS = `## Concord — shared work-state for coding agents

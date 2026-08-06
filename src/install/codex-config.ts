@@ -63,6 +63,94 @@ export function upsertCodexMcpServer(existing: string | undefined): string {
   return tail === '' ? `${head}${section}` : `${head}${section}\n${tail}`;
 }
 
+const HOOKS_BEGIN = '# >>> concord hooks >>>';
+const HOOKS_END = '# <<< concord hooks <<<';
+
+/**
+ * Codex passes its session id on stdin rather than in the environment, so every
+ * hook reads the payload to work out which agent it is.
+ */
+const CONCORD_HOOKS_BLOCK = `${HOOKS_BEGIN}
+# Delivers Concord messages from other agents into this session. Remove this
+# block (markers included) to opt out.
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "concord inbox register --from-hook --provider codex"
+
+[[hooks.PostToolUse]]
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "concord inbox drain --from-hook --provider codex --format post-tool-use"
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "concord inbox drain --from-hook --provider codex --format stop"
+${HOOKS_END}`;
+
+/** The table headers this block owns. Anything else inside it came from Codex. */
+const OWNED_HEADERS = new Set([
+  '[[hooks.SessionStart]]',
+  '[[hooks.SessionStart.hooks]]',
+  '[[hooks.PostToolUse]]',
+  '[[hooks.PostToolUse.hooks]]',
+  '[[hooks.Stop]]',
+  '[[hooks.Stop.hooks]]',
+]);
+
+/**
+ * Split a previous block into the part we wrote and any part Codex appended.
+ *
+ * Codex records hook trust as `[hooks.state]` tables written to the end of
+ * config.toml, which lands inside our fence because our end marker is the last
+ * line. Rewriting the whole block would delete that trust and silently
+ * re-prompt the user — so keep everything from the first table header we do not
+ * own onwards.
+ */
+function foreignTail(block: string): string {
+  const lines = block.split('\n');
+  const index = lines.findIndex(
+    (line) => line.trimStart().startsWith('[') && !OWNED_HEADERS.has(line.trim()),
+  );
+  return index === -1 ? '' : lines.slice(index).join('\n').replace(/\n*$/u, '');
+}
+
+/**
+ * Idempotently add Concord's lifecycle hooks to a Codex TOML config.
+ *
+ * The block is fenced by marker comments and appended at the end of the file.
+ * Appending matters: TOML array-of-tables belong to whichever table header
+ * precedes them, so splicing this into the middle would silently re-parent any
+ * following keys.
+ */
+export function upsertCodexHooks(existing: string | undefined): string {
+  const source = existing ?? '';
+  const begin = source.indexOf(HOOKS_BEGIN);
+  const end = source.indexOf(HOOKS_END);
+  if (begin !== -1 && end > begin) {
+    const head = source.slice(0, begin);
+    const tail = source.slice(end + HOOKS_END.length);
+    const preserved = foreignTail(source.slice(begin + HOOKS_BEGIN.length, end));
+    const body = preserved === '' ? CONCORD_HOOKS_BLOCK : `${CONCORD_HOOKS_BLOCK}\n\n${preserved}`;
+    return `${head}${body}${tail}`;
+  }
+  const base = source.replace(/\n*$/u, '');
+  return base === '' ? `${CONCORD_HOOKS_BLOCK}\n` : `${base}\n\n${CONCORD_HOOKS_BLOCK}\n`;
+}
+
+/**
+ * Write Concord's hooks into Codex's user-global `config.toml`. Returns the
+ * absolute path written.
+ */
+export function installCodexHooks(env: NodeJS.ProcessEnv = process.env): string {
+  const fullPath = codexConfigFile(env);
+  const existing = existsSync(fullPath) ? readFileSync(fullPath, 'utf8') : undefined;
+  mkdirSync(dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, upsertCodexHooks(existing));
+  return fullPath;
+}
+
 /**
  * Register Concord in Codex's user-global `config.toml` (created if absent),
  * preserving the rest of the file. Returns the absolute path written, since it

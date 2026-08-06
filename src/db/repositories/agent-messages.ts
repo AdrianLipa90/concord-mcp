@@ -25,6 +25,11 @@ export interface AgentMessageRepository {
   get(messageId: string): AgentMessageRecord | undefined;
   getByIdempotency(senderAgentId: string, idempotencyKey: string): AgentMessageRecord | undefined;
   listByAgent(agentId: string): AgentMessageRecord[];
+  /**
+   * Atomically take every pending message for `agentId`, marking each
+   * delivered and returning only the ones this call actually claimed.
+   */
+  claimPendingForRecipient(agentId: string, provider: string): AgentMessageRecord[];
   listByTask(taskId: string): AgentMessageRecord[];
   listThread(messageId: string): AgentMessageRecord[];
   markDelivered(messageId: string, provider: string, receipt: string | null): AgentMessageRecord;
@@ -57,6 +62,11 @@ export function createAgentMessageRepository(db: ConcordDatabase): AgentMessageR
   const listByAgentStmt = db.prepare(`
     SELECT * FROM agent_messages
     WHERE sender_agent_id = ? OR recipient_agent_id = ?
+    ORDER BY created_at, message_id
+  `);
+  const listPendingStmt = db.prepare(`
+    SELECT * FROM agent_messages
+    WHERE recipient_agent_id = ? AND status = 'pending'
     ORDER BY created_at, message_id
   `);
   const listByTaskStmt = db.prepare(`
@@ -98,6 +108,23 @@ export function createAgentMessageRepository(db: ConcordDatabase): AgentMessageR
     return message;
   }
 
+  function claimPending(agentId: string, provider: string): AgentMessageRecord[] {
+    const raw: unknown = listPendingStmt.all(agentId);
+    const claimed: AgentMessageRecord[] = [];
+    for (const row of rawListSchema.parse(raw).map(parseAgentMessageRow)) {
+      const result = markDeliveredStmt.run({
+        message_id: row.messageId,
+        provider,
+        receipt: null,
+        now: new Date().toISOString(),
+      });
+      if (result.changes === 0) continue;
+      recordEvent(row.messageId, 'delivered', provider);
+      claimed.push(requireMessage(row.messageId));
+    }
+    return claimed;
+  }
+
   function recordEvent(
     messageId: string,
     event: AgentMessageEvent,
@@ -105,6 +132,8 @@ export function createAgentMessageRepository(db: ConcordDatabase): AgentMessageR
   ): void {
     eventStmt.run({ message_id: messageId, event, detail, created_at: new Date().toISOString() });
   }
+
+  const claimTransaction = db.transaction(claimPending);
 
   return {
     create(message) {
@@ -130,6 +159,13 @@ export function createAgentMessageRepository(db: ConcordDatabase): AgentMessageR
     listByAgent(agentId) {
       const raw: unknown = listByAgentStmt.all(agentId, agentId);
       return rawListSchema.parse(raw).map(parseAgentMessageRow);
+    },
+    claimPendingForRecipient(agentId, provider) {
+      // A Claude Code session drains from both a 2s monitor poll and a
+      // PostToolUse hook, so two drains overlap routinely. The UPDATE is the
+      // claim: whoever flips the row out of 'pending' owns the message, and
+      // the loser emits nothing rather than showing the agent a duplicate.
+      return claimTransaction(agentId, provider);
     },
     listByTask(taskId) {
       const raw: unknown = listByTaskStmt.all(taskId);

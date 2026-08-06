@@ -1,0 +1,13 @@
+{
+  "name": "concord-relay",
+  "description": "Delivers Concord inter-agent messages into a running Claude Code session, whether it is mid-task or idle at the prompt.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Concord",
+    "url": "https://github.com/Get-Concord-AI/concord-mcp"
+  },
+  "homepage": "https://github.com/Get-Concord-AI/concord-mcp",
+  "experimental": {
+    "monitors": "./monitors/monitors.json"
+  }
+}

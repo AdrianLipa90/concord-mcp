@@ -8,7 +8,6 @@ import { migrations } from '../../db/schema.js';
 import { buildAdoption } from '../../domain/adoption.js';
 import { BLOCK_END, BLOCK_START } from '../../install/block.js';
 import { CONCORD_INSTRUCTION_VERSION } from '../../install/instructions.js';
-import { readAgentCommunicationConfig } from '../../install/agent-communications.js';
 import { endpointPromptable } from '../../tools/agent-messages.js';
 import { openContext, type CliContext } from '../context.js';
 
@@ -51,7 +50,6 @@ export function buildDoctorReport(ctx: CliContext): string {
   const events = ctx.repos.events.list();
   const adoption = buildAdoption(events);
   const instructions = instructionStatus(ctx.repoRoot);
-  const communications = readAgentCommunicationConfig(ctx.concordPath);
   const endpoints = ctx.repos.agentEndpoints.list();
   const connectedEndpoints = endpoints.filter((endpoint) => endpointPromptable(endpoint));
 
@@ -64,7 +62,6 @@ export function buildDoctorReport(ctx: CliContext): string {
     `  concord.db   ${existsSync(dbPath) ? 'ok' : 'missing'} (schema v${String(schemaVersion)}, expected v${String(migrations.length)})`,
     `  repo root    ${ctx.repoRoot}`,
     `  instructions ${instructions}`,
-    `  live prompts ${communications?.approved === true ? `enabled (${communications.providers.join(', ') || 'no detected clients'})` : 'not enabled'}`,
     `  endpoints    ${String(connectedEndpoints.length)} reachable / ${String(endpoints.length)} registered`,
     '',
     'Activity',

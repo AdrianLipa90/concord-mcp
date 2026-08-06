@@ -38,7 +38,6 @@ import {
   AgentMessageDeliveryError,
   handleSendAgentMessage,
   inspectAgentCommunication,
-  type AgentMessageDispatcher,
   type SendAgentMessageResult,
 } from './agent-messages.js';
 import {
@@ -217,14 +216,10 @@ function updateRequired<T>(value: T | undefined, field: string, operation: strin
   return value;
 }
 
-export async function handleUpdateWork(
-  repos: Repositories,
-  input: UpdateWorkInput,
-  dispatcher: AgentMessageDispatcher,
-): Promise<UpdateWorkResult> {
+export function handleUpdateWork(repos: Repositories, input: UpdateWorkInput): UpdateWorkResult {
   const operation = input.operation ?? 'record';
   if (operation !== 'record') {
-    return handleSendAgentMessage(repos, dispatcher, {
+    return handleSendAgentMessage(repos, {
       operation,
       agentId: updateRequired(input.agent_id, 'agent_id', operation),
       toAgentId: input.to_agent_id,
@@ -413,9 +408,6 @@ export function registerWorkflowTools(
   repos: Repositories,
   onWrite?: () => void,
   selectWorkspace?: SelectWorkspace,
-  dispatcher: AgentMessageDispatcher = {
-    deliver: () => Promise.reject(new Error('Concord relay is not connected')),
-  },
 ): void {
   server.registerTool(
     'start_work',
@@ -576,10 +568,10 @@ export function registerWorkflowTools(
         'Record task context or deliver a live prompt/reply to another promptable workspace agent.',
       inputSchema: updateWorkInputShape,
     },
-    async (args) => {
+    (args) => {
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
       try {
-        const result = await handleUpdateWork(repos, args, dispatcher);
+        const result = handleUpdateWork(repos, args);
         onWrite?.();
         if ('update' in result) {
           return {
@@ -609,7 +601,11 @@ export function registerWorkflowTools(
             {
               type: 'text',
               text: withWorkspaceText(
-                `${args.operation ?? 'prompt'} ${result.message.messageId}; status ${result.message.status}.`,
+                result.message.status === 'pending'
+                  ? `${args.operation ?? 'prompt'} ${result.message.messageId}; queued for ` +
+                      `${result.message.recipientAgentId}. ${result.outlook}`
+                  : `${args.operation ?? 'prompt'} ${result.message.messageId}; status ` +
+                      `${result.message.status}.`,
                 workspace,
               ),
             },
@@ -626,6 +622,7 @@ export function registerWorkflowTools(
             provider_receipt: result.message.providerReceipt,
             delivered_at: result.message.deliveredAt,
             idempotent_replay: result.idempotentReplay,
+            outlook: result.outlook,
           },
         };
       } catch (error) {

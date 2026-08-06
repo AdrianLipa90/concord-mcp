@@ -1,0 +1,7 @@
+[
+  {
+    "name": "concord-inbox",
+    "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/watch-inbox.sh",
+    "description": "Concord messages from other agents"
+  }
+]
