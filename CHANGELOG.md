@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-06
+
+### Fixed
+
+- The relay plugin is now published. `files` listed only `dist`, so 0.7.0 on
+  npm contained the CLI and server but not `plugin/concord-relay` — the
+  background monitor is the only channel that reaches an idle Claude Code
+  agent, and it was unavailable to anyone who installed from the registry.
+- `concord setup` installs it. Codex hooks were installed automatically while
+  Claude Code's half of the relay was left to be wired up by hand, so a fresh
+  setup gave Codex live delivery and Claude Code none. A monitor can only be
+  declared by a plugin, so this links the packaged plugin into Claude Code's
+  skills directory, where it loads with no marketplace and no install step.
+
 ## [0.7.0] - 2026-08-06
 
 Inter-agent messages are now actually delivered. 0.6.1 shipped the send path but
