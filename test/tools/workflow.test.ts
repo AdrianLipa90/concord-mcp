@@ -441,6 +441,22 @@ describe('simplified workflow MCP contract', () => {
       expect(JSON.stringify(replay)).toContain('"idempotent_replay":true');
       expect(repos.tasks.get('TASK-TARGET')?.updatedAt).toBe(oldTimestamp);
 
+      const crossTaskReplay = await harness.client.callTool({
+        name: 'update_work',
+        arguments: {
+          operation: 'prompt',
+          task_id: 'TASK-SENDER',
+          agent_id: 'codex:sender',
+          to_agent_id: 'codex:target',
+          content: 'Please re-check the parser boundary.',
+          idempotency_key: 'sender-1',
+        },
+      });
+      expect(crossTaskReplay.isError).toBe(true);
+      expect(JSON.stringify(crossTaskReplay)).toContain(
+        'idempotency_key was already used for a different message',
+      );
+
       const endpoint = repos.agentEndpoints.getByAgent('codex:target');
       expect(endpoint).toBeDefined();
       if (endpoint !== undefined) repos.agentEndpoints.disconnect(endpoint.endpointId);

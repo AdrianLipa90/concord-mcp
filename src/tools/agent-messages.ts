@@ -143,7 +143,8 @@ export function handleSendAgentMessage(
     if (
       replay.recipientAgentId !== recipientAgentId ||
       replay.content !== input.content ||
-      replay.replyToMessageId !== (parent?.messageId ?? null)
+      replay.replyToMessageId !== (parent?.messageId ?? null) ||
+      replay.taskId !== contextualTaskId
     ) {
       throw new AgentMessageDeliveryError(
         'unauthorized',
