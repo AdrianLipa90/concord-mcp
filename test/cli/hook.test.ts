@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   decidePreToolUse,
   handleSessionStart,
-  sessionStartAgentId,
+  sessionStartIdentity,
 } from '../../src/cli/commands/hook.js';
 import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
@@ -55,22 +55,24 @@ describe('decidePreToolUse', () => {
   });
 });
 
-describe('sessionStartAgentId', () => {
+describe('sessionStartIdentity', () => {
   it('derives a stable id from the session id', () => {
-    const id = sessionStartAgentId('a1b2c3d4-e5f6-7890');
+    const id = sessionStartIdentity('a1b2c3d4-e5f6-7890', {})?.agentId;
 
     expect(id).toMatch(/^claude-code:[0-9a-f]{8}$/);
-    expect(sessionStartAgentId('a1b2c3d4-e5f6-7890')).toBe(id);
+    expect(sessionStartIdentity('a1b2c3d4-e5f6-7890', {})?.agentId).toBe(id);
   });
 
   it('separates sessions that share a leading timestamp', () => {
-    expect(sessionStartAgentId('019fd3d0-aaaa-7211-b743-000000000001')).not.toBe(
-      sessionStartAgentId('019fd3d0-bbbb-7211-b743-000000000002'),
+    expect(sessionStartIdentity('019fd3d0-aaaa-7211-b743-000000000001', {})?.agentId).not.toBe(
+      sessionStartIdentity('019fd3d0-bbbb-7211-b743-000000000002', {})?.agentId,
     );
   });
 
-  it('falls back to a random suffix when no session id is given', () => {
-    expect(sessionStartAgentId(undefined)).toMatch(/^claude-code:[0-9a-f]{8}$/);
+  it('invents nothing when no session id is given', () => {
+    // A random suffix here would produce an agent the relay never registers an
+    // endpoint for: addressable, and permanently undeliverable.
+    expect(sessionStartIdentity(undefined, {})).toBeUndefined();
   });
 });
 
@@ -90,7 +92,7 @@ describe('handleSessionStart', () => {
     expect(result.message).toContain('start_work, update_work, finish_work');
     expect(result.message).not.toContain('claim_work');
     expect(result.message).toContain('No other agents');
-    expect(repos.agents.get(result.agentId)?.cwd).toBe('/repo');
+    expect(repos.agents.get(result.agentId ?? '')?.cwd).toBe('/repo');
   });
 
   it('is idempotent for the same session and lists other present agents', () => {

@@ -6,6 +6,7 @@ import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { createServer } from '../../src/server.js';
 import { drainInbox, registerPullEndpoint } from '../../src/cli/commands/inbox.js';
+import { resolveIdentity, type AgentIdentity } from '../../src/domain/identity.js';
 import { PUBLIC_WORKFLOW_TOOLS } from '../../src/tools/workflow.js';
 
 interface Harness {
@@ -13,8 +14,8 @@ interface Harness {
   server: ReturnType<typeof createServer>;
 }
 
-async function connect(repos: Repositories): Promise<Harness> {
-  const server = createServer(repos, {});
+async function connect(repos: Repositories, identity?: AgentIdentity): Promise<Harness> {
+  const server = createServer(repos, identity === undefined ? {} : { identity });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'workflow-test', version: '0.0.0' });
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -661,6 +662,116 @@ describe('simplified workflow MCP contract', () => {
       expect(repos.agentMessages.listByAgent('codex:target')).toHaveLength(1);
       expect(repos.agentMessages.get(pending.messageId)?.status).toBe('pending');
       expect(JSON.stringify(result)).toContain('"idempotent_replay":true');
+    } finally {
+      await close(harness);
+    }
+  });
+});
+
+describe('one identity per session', () => {
+  let repos: Repositories;
+  const env = { CLAUDE_CODE_SESSION_ID: '019fd3d0-75d2-7211-b743-d770c8c76fc6' };
+
+  beforeEach(() => {
+    repos = createRepositories(openDatabase(':memory:'));
+  });
+
+  it('gives the relay and start_work the same agent, with one delivery endpoint', async () => {
+    // The regression: start_work used to mint a random id while the relay
+    // registered the session-derived one, so the session existed twice and
+    // every message addressed to the id start_work returned bounced.
+    const identity = resolveIdentity(env);
+    if (identity === undefined) throw new Error('fixture env must resolve an identity');
+
+    registerPullEndpoint(repos, identity.agentId, identity.kind);
+    const harness = await connect(repos, identity);
+    try {
+      const started = await harness.client.callTool({
+        name: 'start_work',
+        arguments: { task_id: 'T1', title: 'Unified identity', kind: 'claude-code' },
+      });
+
+      expect(JSON.stringify(started)).toContain(identity.agentId);
+      expect(repos.agents.list()).toHaveLength(1);
+      expect(repos.agentEndpoints.getByAgent(identity.agentId)).toBeDefined();
+    } finally {
+      await close(harness);
+    }
+  });
+
+  it('delivers a peer message to an agent that only ever called start_work', async () => {
+    // Two sessions, two servers, one workspace — the shape of the original bug
+    // report, where every reply to the start_work agent failed to deliver.
+    const identity = resolveIdentity(env);
+    if (identity === undefined) throw new Error('fixture env must resolve an identity');
+    const peer: AgentIdentity = {
+      agentId: 'claude-code:peer0001',
+      kind: 'claude-code',
+      origin: 'session',
+    };
+    registerPullEndpoint(repos, identity.agentId, identity.kind);
+    registerPullEndpoint(repos, peer.agentId, peer.kind);
+
+    const mine = await connect(repos, identity);
+    const theirs = await connect(repos, peer);
+    try {
+      await mine.client.callTool({
+        name: 'start_work',
+        arguments: { task_id: 'T1', title: 'Unified identity', kind: 'claude-code' },
+      });
+      const sent = await theirs.client.callTool({
+        name: 'update_work',
+        arguments: {
+          operation: 'prompt',
+          to_agent_id: identity.agentId,
+          content: 'Can you hear me?',
+          idempotency_key: 'peer-1',
+        },
+      });
+
+      // Previously target_not_promptable: the id start_work returned had no endpoint.
+      expect(sent.isError).not.toBe(true);
+      expect(drainInbox(repos, identity.agentId, identity.kind)).toHaveLength(1);
+    } finally {
+      await close(theirs);
+      await close(mine);
+    }
+  });
+
+  it('ignores an agent_id a caller supplies when it can see the session', async () => {
+    const identity = resolveIdentity(env);
+    if (identity === undefined) throw new Error('fixture env must resolve an identity');
+    const harness = await connect(repos, identity);
+    try {
+      await harness.client.callTool({
+        name: 'start_work',
+        arguments: {
+          task_id: 'T1',
+          title: 'Unified identity',
+          kind: 'claude-code',
+          agent_id: 'claude-code:someone-else',
+        },
+      });
+
+      // Honouring it would let an agent claim, finish, or message as a peer.
+      expect(repos.agents.get('claude-code:someone-else')).toBeUndefined();
+      expect(repos.tasks.get('T1')?.agentId).toBe(identity.agentId);
+    } finally {
+      await close(harness);
+    }
+  });
+
+  it('refuses to act rather than invent an identity it cannot resolve', async () => {
+    const harness = await connect(repos);
+    try {
+      const result = await harness.client.callTool({
+        name: 'start_work',
+        arguments: { task_id: 'T1', title: 'No identity', kind: 'claude-code' },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).toContain('concord inbox register');
+      expect(repos.agents.list()).toHaveLength(0);
     } finally {
       await close(harness);
     }

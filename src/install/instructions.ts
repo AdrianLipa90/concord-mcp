@@ -19,9 +19,10 @@ export const CONCORD_INSTRUCTIONS = `## Concord — shared work-state for coding
 
 This project uses Concord MCP. Keep coordination to the five workflow tools:
 
-- **Before editing**, call \`start_work\` with the task, your agent kind/id, and
+- **Before editing**, call \`start_work\` with the task, your agent kind, and
   expected files or modules. It registers presence, accepts assigned work when
-  appropriate, claims the scope, and returns overlap warnings.
+  appropriate, claims the scope, and returns overlap warnings. Concord derives
+  your \`agent_id\` from your session — omit it unless your client told you one.
 - Use \`inspect_work\` to read the workspace, one task, one agent, or one message
   thread. Use \`update_work\` for durable progress and for live prompts/replies
   to another promptable workspace agent, including while that agent is busy.

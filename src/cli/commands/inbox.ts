@@ -11,6 +11,7 @@ import {
   renderMonitorLines,
   type DeliverableMessage,
 } from '../../domain/pull-inbox.js';
+import { ensureAgentRegistered } from '../../tools/register-agent.js';
 import { resolveAgentId } from '../agent-identity.js';
 import { openContext } from '../context.js';
 
@@ -31,20 +32,7 @@ export function registerPullEndpoint(
   // The endpoint references an agent row. Hook execution order is not
   // guaranteed, so do not assume the presence hook has already run — otherwise
   // whether messaging works depends on which SessionStart hook fired first.
-  if (repos.agents.get(agentId) === undefined) {
-    repos.agents.upsert({
-      agentId,
-      kind: provider,
-      owner: null,
-      model: null,
-      pid: null,
-      cwd: process.cwd(),
-      worktree: null,
-      branch: null,
-      summary: null,
-      status: 'active',
-    });
-  }
+  ensureAgentRegistered(repos, { agentId, kind: provider }, process.cwd());
   const capability = capabilityFor(provider);
   const existing = repos.agentEndpoints.getByAgent(agentId);
   repos.agentEndpoints.upsert({
@@ -153,12 +141,12 @@ export function registerInboxCommand(program: Command): void {
         ...(options.fromHook === true ? { hookPayload: readHookPayload() ?? '' } : {}),
       });
       registerPullEndpoint(context.repos, agentId, options.provider);
-      // Name the id, not just the capability. Only this id has a delivery
-      // endpoint, so an agent that lets start_work mint a fresh one becomes
-      // unreachable while still looking registered.
+      // Name the id. Clients whose session Concord can read resolve it on every
+      // tool call; clients that scrub their environment (Codex) cannot, and for
+      // those this line is the only place the agent learns who it is.
       process.stdout.write(
         `Concord: this session is agent \`${agentId}\` and can receive live messages from other ` +
-          `agents. Pass agent_id="${agentId}" to every Concord tool call; do not invent a ` +
+          `agents. If a Concord tool asks for agent_id, use "${agentId}"; do not invent a ` +
           'different id.\n',
       );
     });
