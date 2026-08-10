@@ -109,8 +109,21 @@ describe('handleSessionStart', () => {
     expect(again.message).toContain('building the backend');
   });
 
-  it('tolerates a malformed payload by generating a random id', () => {
-    const result = handleSessionStart(repos, 'not json');
+  it('falls back to the environment when the payload is malformed', () => {
+    const result = handleSessionStart(repos, 'not json', {
+      CLAUDE_CODE_SESSION_ID: 'a1b2c3d4-e5f6-7890',
+    });
+
     expect(result.agentId).toMatch(/^claude-code:[0-9a-f]{8}$/);
+  });
+
+  it('registers nothing when a malformed payload has no environment to fall back on', () => {
+    // Generating an id here would create an agent the relay never registers an
+    // endpoint for: addressable by peers, and permanently undeliverable.
+    const result = handleSessionStart(repos, 'not json', {});
+
+    expect(result.agentId).toBeUndefined();
+    expect(result.message).toContain('concord inbox register');
+    expect(repos.agents.list()).toHaveLength(0);
   });
 });

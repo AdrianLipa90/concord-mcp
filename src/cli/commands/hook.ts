@@ -93,7 +93,11 @@ export interface SessionStartResult {
  * `start_work`, then tell it the `agent_id` and who else is active. Reads a
  * SessionStart JSON payload.
  */
-export function handleSessionStart(repos: Repositories, rawJson: string): SessionStartResult {
+export function handleSessionStart(
+  repos: Repositories,
+  rawJson: string,
+  env: NodeJS.ProcessEnv = process.env,
+): SessionStartResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawJson);
@@ -101,7 +105,9 @@ export function handleSessionStart(repos: Repositories, rawJson: string): Sessio
     parsed = {};
   }
   const payload = sessionStartPayloadSchema.parse(parsed);
-  const identity = sessionStartIdentity(payload.session_id);
+  // A malformed payload still has the environment to fall back on, since the
+  // hook runs inside the session it is describing.
+  const identity = sessionStartIdentity(payload.session_id, env);
   if (identity === undefined) {
     return { agentId: undefined, message: `Concord: ${UNRESOLVED_IDENTITY_MESSAGE}` };
   }
