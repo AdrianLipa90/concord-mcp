@@ -4,7 +4,7 @@ import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { handleClaimWork } from '../../src/tools/claim-work.js';
 import { handleHandoff } from '../../src/tools/handoff.js';
-import { generateAgentId, handleRegisterAgent } from '../../src/tools/register-agent.js';
+import { ensureAgentRegistered, handleRegisterAgent } from '../../src/tools/register-agent.js';
 import { handleUpdateTask } from '../../src/tools/update-task.js';
 
 describe('handleRegisterAgent', () => {
@@ -13,10 +13,14 @@ describe('handleRegisterAgent', () => {
     repos = createRepositories(openDatabase(':memory:'));
   });
 
-  it('generates a kind-prefixed id and registers a new agent', () => {
-    const result = handleRegisterAgent(repos, { kind: 'claude-code', owner: 'alex' });
+  it('registers a new agent under the identity it was given', () => {
+    const result = handleRegisterAgent(repos, {
+      agent_id: 'claude-code:abcd1234',
+      kind: 'claude-code',
+      owner: 'alex',
+    });
     expect(result.firstRegistration).toBe(true);
-    expect(result.agent.agentId).toMatch(/^claude-code:[0-9a-f]{4}$/);
+    expect(result.agent.agentId).toBe('claude-code:abcd1234');
     expect(result.agent.status).toBe('active');
     expect(result.roster).toHaveLength(1);
     expect(result.roster[0]?.liveness).toBe('live');
@@ -60,12 +64,41 @@ describe('handleRegisterAgent', () => {
       'building the backend',
     );
   });
+});
 
-  it('generateAgentId produces distinct kind-prefixed ids', () => {
-    const a = generateAgentId('codex');
-    const b = generateAgentId('codex');
-    expect(a).toMatch(/^codex:[0-9a-f]{4}$/);
-    expect(a).not.toBe(b);
+describe('ensureAgentRegistered', () => {
+  let repos: Repositories;
+  beforeEach(() => {
+    repos = createRepositories(openDatabase(':memory:'));
+  });
+
+  it('creates a presence row for a session that knows only who it is', () => {
+    const agent = ensureAgentRegistered(
+      repos,
+      { agentId: 'claude-code:abcd1234', kind: 'claude-code' },
+      '/repo',
+    );
+
+    expect(agent.agentId).toBe('claude-code:abcd1234');
+    expect(agent.cwd).toBe('/repo');
+  });
+
+  it('never blanks metadata a richer registration already recorded', () => {
+    // The relay calls this every couple of seconds. `upsert` is a full
+    // replacement, so refreshing rather than preserving would erase the summary
+    // and owner that start_work stored (issue #68).
+    handleRegisterAgent(repos, {
+      agent_id: 'claude-code:abcd1234',
+      kind: 'claude-code',
+      owner: 'alex',
+      summary: 'building the relay',
+    });
+
+    ensureAgentRegistered(repos, { agentId: 'claude-code:abcd1234', kind: 'claude-code' }, '/repo');
+
+    expect(repos.agents.get('claude-code:abcd1234')?.summary).toBe('building the relay');
+    expect(repos.agents.get('claude-code:abcd1234')?.owner).toBe('alex');
+    expect(repos.agents.list()).toHaveLength(1);
   });
 });
 

@@ -10,6 +10,9 @@ import { workspaceIdForRoot } from '../../src/config/paths.js';
 import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { createServer } from '../../src/server.js';
+
+/** A server whose session Concord can see, as in any Claude Code session. */
+const SESSION = { agentId: 'test-agent:abcd1234', kind: 'test-agent', origin: 'session' } as const;
 import { handleClaimWork } from '../../src/tools/claim-work.js';
 import { handleGetWorkState, WORK_STATE_URI } from '../../src/tools/get-work-state.js';
 import { WorkspaceManager } from '../../src/workspaces/manager.js';
@@ -71,7 +74,7 @@ describe('work-state MCP surface (end-to-end via in-memory transport)', () => {
       agent: 'codex',
     });
 
-    const server = createServer(repos);
+    const server = createServer(repos, { identity: SESSION });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.0.0' });
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -99,7 +102,7 @@ describe('work-state MCP surface (end-to-end via in-memory transport)', () => {
 
   it('pushes a resources/updated notification to subscribers when work-state changes', async () => {
     const repos = createRepositories(openDatabase(':memory:'));
-    const server = createServer(repos);
+    const server = createServer(repos, { identity: SESSION });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.0.0' });
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -133,6 +136,7 @@ describe('work-state MCP surface (end-to-end via in-memory transport)', () => {
     const manager = new WorkspaceManager(firstRoot);
     const writtenRoots: string[] = [];
     const server = createServer(manager.current().repos, {
+      identity: SESSION,
       workspaceManager: manager,
       onToolWrite: (workspace) => {
         if (workspace !== undefined) {
@@ -193,7 +197,10 @@ describe('work-state MCP surface (end-to-end via in-memory transport)', () => {
   it('returns an MCP tool error for an invalid workspace selector', async () => {
     const root = repoDir('invalid-join');
     const manager = new WorkspaceManager(root);
-    const server = createServer(manager.current().repos, { workspaceManager: manager });
+    const server = createServer(manager.current().repos, {
+      identity: SESSION,
+      workspaceManager: manager,
+    });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test-client', version: '0.0.0' });
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);

@@ -11,10 +11,12 @@ type Require<T, Keys extends keyof T> = Omit<T, Keys> & {
   [Key in Keys]-?: NonNullable<T[Key]>;
 };
 
+/** `agent_id` is required here, unlike on the tool surface: by this point the
+ * caller has resolved the session identity, and nothing may invent one. */
 export type RegisterAgentInput = Pick<
   StartWorkInput,
-  'agent_id' | 'kind' | 'owner' | 'model' | 'summary' | 'branch' | 'worktree' | 'cwd' | 'pid'
-> & { status?: AgentStatus | undefined };
+  'kind' | 'owner' | 'model' | 'summary' | 'branch' | 'worktree' | 'cwd' | 'pid'
+> & { agent_id: string; status?: AgentStatus | undefined };
 
 export type ClaimWorkInput = Pick<
   StartWorkInput,
@@ -79,7 +81,13 @@ export type ReviewReadyInput = Pick<
   expected_version?: number | undefined;
 };
 
-type TransferActorInput = Pick<TransferWorkInput, 'task_id' | 'agent_id' | 'expected_version'>;
+/** Ownership actions always name their actor: `agent_id` is optional on the
+ * wire because Concord resolves it from the session, but by the time a
+ * lifecycle handler runs it has been resolved and is required. */
+type TransferActorInput = Require<
+  Pick<TransferWorkInput, 'task_id' | 'agent_id' | 'expected_version'>,
+  'agent_id'
+>;
 
 export type AssignTaskInput = Require<
   TransferActorInput & Pick<TransferWorkInput, 'to_agent_id' | 'lease_seconds' | 'reason'>,

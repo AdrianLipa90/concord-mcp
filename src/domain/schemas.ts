@@ -8,15 +8,24 @@ import { z } from 'zod';
 
 const taskIdField = z.string().min(1).describe('Stable task identifier, e.g. TASK-12');
 
+/**
+ * The actor's own identity, on every write tool.
+ *
+ * Normally omitted: Concord derives who you are from your session, and a
+ * resolved session identity overrides anything passed here — otherwise an agent
+ * could act, or send messages, as one of its peers. Supplying it matters only
+ * for clients whose session Concord cannot see (Codex, which scrubs the
+ * environment of the processes it spawns and tells the model its id via a
+ * SessionStart hook instead).
+ */
 const agentIdField = z
   .string()
-  .optional()
-  .describe('Existing agent identity to refresh; omit on the first call to generate one');
-
-const actorAgentIdField = z
-  .string()
   .min(1)
-  .describe('Registered agent identity performing this operation');
+  .optional()
+  .describe(
+    'Usually omit — Concord derives your identity from your session. Pass only the id your ' +
+      'client told you (Codex); a session Concord can see always wins.',
+  );
 
 const taskVersionField = z
   .number()
@@ -149,7 +158,7 @@ export const transferWorkInputShape = {
   action: z
     .enum(transferWorkActionValues)
     .describe('Ownership action to apply through the versioned task state machine'),
-  agent_id: actorAgentIdField,
+  agent_id: agentIdField,
   expected_version: taskVersionField,
   to_agent_id: z.string().min(1).optional().describe('Required for assign, reassign, and offer'),
   handoff_id: z
@@ -176,7 +185,7 @@ export type TransferWorkInput = z.infer<z.ZodObject<typeof transferWorkInputShap
 
 export const finishWorkInputShape = {
   task_id: taskIdField,
-  agent_id: actorAgentIdField,
+  agent_id: agentIdField,
   expected_version: taskVersionField,
   outcome: z
     .enum(['handoff', 'review_ready', 'complete', 'closed'])

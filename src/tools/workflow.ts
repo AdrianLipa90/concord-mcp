@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Repositories, TaskRecord } from '../db/index.js';
+import { resolveActorId, type AgentIdentity } from '../domain/identity.js';
 import {
   finishWorkInputShape,
   type FinishWorkInput,
@@ -61,6 +62,15 @@ export interface StartWorkResult {
   resumedBy: 'new_claim' | 'claim' | 'assignment' | 'handoff' | 'reopen';
 }
 
+/**
+ * A tool input whose actor has already been resolved.
+ *
+ * `agent_id` is optional on the wire and required here: the boundary between
+ * "what a model asked for" and "who Concord decided you are" is this type, and
+ * the compiler will not let a handler skip it.
+ */
+type WithActor<T> = T & { agent_id: string };
+
 function taskOrThrow(repos: Repositories, taskId: string): TaskRecord {
   const task = repos.tasks.get(taskId);
   if (task === undefined) {
@@ -74,7 +84,7 @@ function taskOrThrow(repos: Repositories, taskId: string): TaskRecord {
  * operation. Existing assignments, addressed handoffs, proposed tasks, and
  * terminal tasks are resumed through the same proven lifecycle handlers.
  */
-function startWork(repos: Repositories, input: StartWorkInput): StartWorkResult {
+function startWork(repos: Repositories, input: WithActor<StartWorkInput>): StartWorkResult {
   const registration = handleRegisterAgent(repos, {
     agent_id: input.agent_id,
     kind: input.kind,
@@ -165,7 +175,10 @@ function startWork(repos: Repositories, input: StartWorkInput): StartWorkResult 
   return { registration, claim, resumedBy };
 }
 
-export function handleStartWork(repos: Repositories, input: StartWorkInput): StartWorkResult {
+export function handleStartWork(
+  repos: Repositories,
+  input: WithActor<StartWorkInput>,
+): StartWorkResult {
   const transact = repos.db.transaction(() => startWork(repos, input));
   return transact();
 }
@@ -216,12 +229,15 @@ function updateRequired<T>(value: T | undefined, field: string, operation: strin
   return value;
 }
 
-export function handleUpdateWork(repos: Repositories, input: UpdateWorkInput): UpdateWorkResult {
+export function handleUpdateWork(
+  repos: Repositories,
+  input: WithActor<UpdateWorkInput>,
+): UpdateWorkResult {
   const operation = input.operation ?? 'record';
   if (operation !== 'record') {
     return handleSendAgentMessage(repos, {
       operation,
-      agentId: updateRequired(input.agent_id, 'agent_id', operation),
+      agentId: input.agent_id,
       toAgentId: input.to_agent_id,
       replyToMessageId: input.reply_to_message_id,
       taskId: input.task_id,
@@ -258,7 +274,7 @@ export type TransferWorkResult = TaskLifecycleResult | HandoffLifecycleResult;
 
 export function handleTransferWork(
   repos: Repositories,
-  input: TransferWorkInput,
+  input: WithActor<TransferWorkInput>,
 ): TransferWorkResult {
   const common = {
     task_id: input.task_id,
@@ -338,7 +354,10 @@ export interface FinishWorkResult {
 }
 
 /** Record evidence and apply the requested review/terminal state atomically. */
-export function handleFinishWork(repos: Repositories, input: FinishWorkInput): FinishWorkResult {
+export function handleFinishWork(
+  repos: Repositories,
+  input: WithActor<FinishWorkInput>,
+): FinishWorkResult {
   const transact = repos.db.transaction(() => {
     const evidence = handleHandoff(repos, {
       task_id: input.task_id,
@@ -409,7 +428,15 @@ export function registerWorkflowTools(
   repos: Repositories,
   onWrite?: () => void,
   selectWorkspace?: SelectWorkspace,
+  session?: AgentIdentity,
 ): void {
+  /** Stamp the resolved actor onto a write tool's arguments. Throws with the
+   *  fix-it message when neither the session nor the caller identifies anyone. */
+  const withActor = <T extends { agent_id?: string | undefined }>(args: T): WithActor<T> => ({
+    ...args,
+    agent_id: resolveActorId(session, args.agent_id),
+  });
+
   server.registerTool(
     'start_work',
     {
@@ -421,7 +448,13 @@ export function registerWorkflowTools(
     },
     (args) => {
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
-      const result = handleStartWork(repos, args);
+      // The session's kind wins alongside its id: the id embeds the kind, so
+      // registering under a different one would describe an agent that is not
+      // the one being addressed.
+      const result = handleStartWork(repos, {
+        ...withActor(args),
+        kind: session?.kind ?? args.kind,
+      });
       onWrite?.();
       const task = result.claim.task;
       return {
@@ -572,7 +605,7 @@ export function registerWorkflowTools(
     (args) => {
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
       try {
-        const result = handleUpdateWork(repos, args);
+        const result = handleUpdateWork(repos, withActor(args));
         onWrite?.();
         if ('update' in result) {
           return {
@@ -665,7 +698,7 @@ export function registerWorkflowTools(
     },
     (args) => {
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
-      const result = handleTransferWork(repos, args);
+      const result = handleTransferWork(repos, withActor(args));
       onWrite?.();
       return {
         content: [
@@ -698,7 +731,7 @@ export function registerWorkflowTools(
     },
     (args) => {
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
-      const result = handleFinishWork(repos, args);
+      const result = handleFinishWork(repos, withActor(args));
       onWrite?.();
       return {
         content: [

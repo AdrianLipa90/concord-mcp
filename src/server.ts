@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Repositories } from './db/index.js';
+import type { AgentIdentity } from './domain/identity.js';
 import { CONCORD_SERVER_INSTRUCTIONS } from './install/instructions.js';
 import { registerWorkStateResource } from './tools/get-work-state.js';
 import { registerWorkflowTools } from './tools/workflow.js';
@@ -19,7 +20,12 @@ export interface ServerOptions {
   onToolWrite?: (workspace: WorkspaceContext | undefined) => void;
   /** Enables automatic root resolution and optional per-operation workspace selection. */
   workspaceManager?: WorkspaceManager;
-  /** Delivers live prompts to provider sessions; defaults to a disconnected relay. */
+  /**
+   * Who this server's session is, resolved from the environment. When present it
+   * is the authority for every write tool, so a model cannot act as a peer by
+   * passing that peer's `agent_id`.
+   */
+  identity?: AgentIdentity;
 }
 
 /**
@@ -42,6 +48,6 @@ export function createServer(repos: Repositories, options: ServerOptions = {}): 
     options.onToolWrite?.(manager?.current());
     notifyWorkStateChanged();
   };
-  registerWorkflowTools(server, selectedRepos, onWrite, selectWorkspace);
+  registerWorkflowTools(server, selectedRepos, onWrite, selectWorkspace, options.identity);
   return server;
 }

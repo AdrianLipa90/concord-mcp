@@ -4,8 +4,10 @@ import type { Command } from '@commander-js/extra-typings';
 import { z } from 'zod';
 
 import type { Repositories } from '../../db/index.js';
+import { UNRESOLVED_IDENTITY_MESSAGE } from '../../domain/identity.js';
 import { buildRoster } from '../../domain/presence.js';
-import { sessionStartAgentId } from '../agent-identity.js';
+import { ensureAgentRegistered } from '../../tools/register-agent.js';
+import { sessionStartIdentity } from '../agent-identity.js';
 import { openContext } from '../context.js';
 import { checkFileOverlaps } from './check.js';
 import { registerPullEndpoint } from './inbox.js';
@@ -77,10 +79,11 @@ const sessionStartPayloadSchema = z
   })
   .loose();
 
-export { sessionStartAgentId };
+export { sessionStartIdentity };
 
 export interface SessionStartResult {
-  agentId: string;
+  /** Undefined when no session id was available to derive an identity from. */
+  agentId: string | undefined;
   /** Context printed to stdout, which Claude Code injects into the session. */
   message: string;
 }
@@ -90,7 +93,11 @@ export interface SessionStartResult {
  * `start_work`, then tell it the `agent_id` and who else is active. Reads a
  * SessionStart JSON payload.
  */
-export function handleSessionStart(repos: Repositories, rawJson: string): SessionStartResult {
+export function handleSessionStart(
+  repos: Repositories,
+  rawJson: string,
+  env: NodeJS.ProcessEnv = process.env,
+): SessionStartResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawJson);
@@ -98,32 +105,27 @@ export function handleSessionStart(repos: Repositories, rawJson: string): Sessio
     parsed = {};
   }
   const payload = sessionStartPayloadSchema.parse(parsed);
-  const agentId = sessionStartAgentId(payload.session_id);
+  // A malformed payload still has the environment to fall back on, since the
+  // hook runs inside the session it is describing.
+  const identity = sessionStartIdentity(payload.session_id, env);
+  if (identity === undefined) {
+    return { agentId: undefined, message: `Concord: ${UNRESOLVED_IDENTITY_MESSAGE}` };
+  }
+  const agentId = identity.agentId;
 
-  repos.agents.upsert({
-    agentId,
-    kind: 'claude-code',
-    owner: null,
-    model: null,
-    pid: null,
-    cwd: payload.cwd ?? null,
-    worktree: null,
-    branch: null,
-    summary: null,
-    status: 'active',
-  });
+  ensureAgentRegistered(repos, identity, payload.cwd ?? null);
 
   // Advertise the session as reachable before any tool call, so a peer that
   // messages it early gets its message queued rather than rejected.
-  registerPullEndpoint(repos, agentId, 'claude-code');
+  registerPullEndpoint(repos, agentId, identity.kind);
 
   const others = buildRoster(repos.agents.list(), Date.now()).filter(
     (entry) => entry.agentId !== agentId,
   );
   const lines = [
-    `Concord: registered this session as agent \`${agentId}\`. Pass agent_id="${agentId}" to ` +
-      'Concord tools (start_work, update_work, finish_work) so your work is attributed and your ' +
-      'presence stays live.',
+    `Concord: this session is agent \`${agentId}\`. Concord resolves that identity from your ` +
+      'session on every tool call, so start_work, update_work, finish_work attribute your work ' +
+      'and keep your presence live without you passing an id.',
     'You can receive live messages from other agents in this workspace; they arrive on their own ' +
       'as relayed context, so you never need to poll for them.',
   ];
