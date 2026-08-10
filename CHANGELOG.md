@@ -6,12 +6,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-10
+
+An agent's identity is now derived from its session in one place, instead of
+being minted separately by each entry point. Three producers of `agent_id`
+disagreed: the relay CLI and the SessionStart hooks derived it from the session
+id, while the MCP surface generated a random one. Only the CLI writes delivery
+endpoints, so an agent that let `start_work` name it received an identity no
+endpoint would ever match — present in the roster, addressable by peers, and
+permanently undeliverable. In one workspace, 23 of 24 such agents had no
+endpoint at all, and every message sent to them failed `target_not_promptable`.
+
+### Changed
+
+- **Concord resolves `agent_id` from the session, and that resolution wins.**
+  A supplied `agent_id` is ignored wherever the session is visible, so an agent
+  can no longer claim, finish, or send messages as one of its peers. The field
+  stays on the tool surface for clients whose session Concord cannot see: Codex
+  spawns MCP servers with a scrubbed environment — no session id, not even
+  `PWD` — so its SessionStart hook still tells the model which id to pass back.
+- `agent_id` is now optional on `transfer_work` and `finish_work`, which
+  previously required it.
+- The MCP server registers its presence at startup, before the transport
+  connects, deriving its identity from the session id already in its
+  environment. Presence no longer waits for the model to call a tool.
+
+### Removed
+
+- Generated agent ids. Where identity cannot be resolved, tools now fail with
+  instructions for fixing it rather than registering an unreachable agent.
+
 ### Fixed
 
+- **Messages addressed to an agent that entered through `start_work` are
+  delivered.** The relay and the MCP surface now agree on one id per session, so
+  a peer's reply reaches the agent that asked for it.
+- A Codex hook whose payload carried no session id fell back to
+  `CLAUDE_CODE_SESSION_ID` and registered `codex:<hash of a Claude session>`, an
+  id belonging to no session. Each client's kind and session id are now read
+  from the same source.
 - Task-scoped activity now refreshes the task's `updated_at` timestamp, so
   current-state views reflect reclaims, progress updates, task-scoped messages,
   handoffs, reviews, and lifecycle work independently of agent heartbeat.
   Activity refreshes do not increment the optimistic-concurrency version.
+- Claim metadata fields reject serialized tool-parameter markup, so a client
+  that folds later arguments into an earlier free-text field cannot create a
+  claim without its real `expected_files`, `modules`, and `domains`.
 
 ## [0.7.1] - 2026-08-06
 
@@ -225,7 +265,10 @@ unimplemented. The recipient now pulls instead.
 - `concord install` writes usage instructions for Claude Code, Codex, and Cursor.
 - Two-agent overlap demo (`pnpm demo`).
 
-[Unreleased]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.7.1...v0.8.0
+[0.7.1]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.4.1...v0.5.0
