@@ -7,9 +7,27 @@
  * compiler forces you to handle — not a new branch in the send path.
  */
 
-/** Delivery direction for a registered endpoint. */
-export const transports = ['pull', 'app-server'] as const;
-export type Transport = (typeof transports)[number];
+import {
+  configuredMonitorCapabilityFor,
+  defaultCapabilityFor,
+  deliveryCapabilities,
+  reaches,
+  transports,
+  type DeliveryCapability,
+  type EndpointCapability,
+  type Reach,
+  type Transport,
+} from './harness-config.js';
+
+export {
+  deliveryCapabilities,
+  reaches,
+  transports,
+  type DeliveryCapability,
+  type EndpointCapability,
+  type Reach,
+  type Transport,
+};
 
 /**
  * Which states an agent can be reached in.
@@ -22,32 +40,19 @@ export type Transport = (typeof transports)[number];
  * see a queued message until its next turn. Telling the sender that is the
  * difference between "queued" and "silently ignored for an hour".
  */
-export const reaches = ['busy', 'idle'] as const;
-type Reach = (typeof reaches)[number];
-
-interface EndpointCapability {
-  transport: Transport;
-  reach: readonly Reach[];
-}
-
-const CAPABILITIES: Record<string, EndpointCapability> = {
-  // A plugin monitor polls for the life of the session, so an idle Claude
-  // Code agent is reachable; the hooks cover the busy case.
-  'claude-code': { transport: 'pull', reach: ['busy', 'idle'] },
-  // Hooks only. See the note above about idle Codex sessions.
-  codex: { transport: 'pull', reach: ['busy'] },
-};
-
-const FALLBACK: EndpointCapability = { transport: 'pull', reach: ['busy'] };
-
 /** What a given client can do. Unknown clients get the conservative answer. */
 export function capabilityFor(provider: string): EndpointCapability {
-  return CAPABILITIES[provider] ?? FALLBACK;
+  return defaultCapabilityFor(provider);
+}
+
+/** Capability advertised by a live harness-owned inbox monitor. */
+export function monitorCapabilityFor(provider: string): EndpointCapability {
+  return configuredMonitorCapabilityFor(provider);
 }
 
 /** Serialize a capability for the endpoint row's `capabilities` column. */
 export function encodeCapabilities(capability: EndpointCapability): string[] {
-  return [capability.transport, ...capability.reach];
+  return [...new Set([capability.transport, ...capability.operations, ...capability.reach])];
 }
 
 /** Read reach back off a stored endpoint. */
@@ -61,8 +66,16 @@ function decodeReach(capabilities: readonly string[]): Reach[] {
  * and a sender that believes otherwise will wait on a reply that never comes.
  */
 export function deliveryOutlook(capabilities: readonly string[]): string {
+  if (capabilities.includes('inject') && capabilities.includes('steer')) {
+    return 'It can be injected now, whether working or idle: a busy turn is steered and an idle session starts a turn.';
+  }
   return decodeReach(capabilities).includes('idle')
     ? 'It will arrive on its own, whether that agent is working or idle.'
     : 'That agent only checks between steps of its own work, so an idle session ' +
         'will not see this until its next turn.';
+}
+
+/** Whether the endpoint should be contacted instead of waiting for a pull. */
+export function supportsImmediateDelivery(capabilities: readonly string[]): boolean {
+  return capabilities.includes('inject') || capabilities.includes('steer');
 }

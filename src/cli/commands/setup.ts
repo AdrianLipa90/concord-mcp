@@ -4,10 +4,18 @@ import { join } from 'node:path';
 
 import { writeArtifacts } from '../../artifacts/index.js';
 import { installClaudeHook } from '../../install/claude-hooks.js';
-import { installClaudeRelayPlugin } from '../../install/claude-plugin.js';
-import { installCodexHooks, installCodexMcpConfig } from '../../install/codex-config.js';
+import { installCodexMcpConfig } from '../../install/codex-config.js';
 import { installConcord } from '../../install/index.js';
-import { McpConfigParseError, installMcpConfigs } from '../../install/mcp-config.js';
+import {
+  installGlobalAdapters,
+  renderAdapterReport,
+  type AdapterReport,
+} from '../../install/adapters/index.js';
+import {
+  McpConfigParseError,
+  installMcpConfigs,
+  removeGlobalCursorConcord,
+} from '../../install/mcp-config.js';
 import { openContext } from '../context.js';
 
 const CONCORD_GITIGNORE_ENTRY = '.concord/';
@@ -15,6 +23,8 @@ const CONCORD_GITIGNORE_ENTRY = '.concord/';
 export interface SetupOptions {
   claudeHooks?: boolean;
   mcp?: boolean;
+  adapters?: boolean;
+  requireAdapters?: boolean;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -23,6 +33,7 @@ export interface SetupResult {
   workspaceId: string;
   concordPath: string;
   written: string[];
+  adapters: AdapterReport[];
 }
 
 /** Ensure Concord's generated workspace is ignored without changing other rules. */
@@ -47,20 +58,34 @@ export function runSetup(cwd: string, options: SetupOptions = {}): SetupResult {
   writeArtifacts(ctx.concordPath, ctx.repos);
 
   const written = installConcord(ctx.repoRoot);
+  let adapters: AdapterReport[] = [];
   if (options.claudeHooks === true) {
     written.push(installClaudeHook(ctx.repoRoot));
   }
   if (options.mcp !== false) {
     written.push(...installMcpConfigs(ctx.repoRoot));
+    const migratedCursorConfig = removeGlobalCursorConcord(env);
+    if (migratedCursorConfig !== undefined) written.push(migratedCursorConfig);
     written.push(installCodexMcpConfig(env));
-    // Claude Code's half of the relay. Its background monitor is the only
-    // channel that reaches an agent idle at the prompt, and a monitor can only
-    // be declared by a plugin — settings.json cannot express one.
-    const plugin = installClaudeRelayPlugin(import.meta.url, env);
-    if (plugin !== undefined) written.push(plugin);
-    // Codex has no background-monitor equivalent, so hooks are the only way it
-    // can receive a message from another agent.
-    written.push(installCodexHooks(env));
+  }
+  // `env` is also the unit-test/config-path seam. Avoid touching unrelated
+  // real harness homes unless adapter installation was explicitly requested.
+  const installAdapters = options.adapters ?? (options.mcp !== false && options.env === undefined);
+  if (installAdapters) {
+    adapters = installGlobalAdapters(import.meta.url, env);
+    for (const adapter of adapters) {
+      if (adapter.installedPath !== undefined) written.push(adapter.installedPath);
+    }
+    if (
+      options.requireAdapters === true &&
+      adapters.some((adapter) => adapter.detected && adapter.status !== 'installed')
+    ) {
+      const incomplete = adapters
+        .filter((adapter) => adapter.detected && adapter.status !== 'installed')
+        .map((adapter) => `${adapter.harness}:${adapter.status}`)
+        .join(', ');
+      throw new Error(`Required harness adapters are incomplete: ${incomplete}`);
+    }
   }
   return {
     repoRoot: ctx.repoRoot,
@@ -68,6 +93,7 @@ export function runSetup(cwd: string, options: SetupOptions = {}): SetupResult {
     concordPath: ctx.concordPath,
     // A file touched by two installers is still one file to the reader.
     written: [...new Set(written)],
+    adapters,
   };
 }
 
@@ -80,9 +106,15 @@ export function registerSetupCommand(program: Command): void {
       'also install an opt-in Claude Code PreToolUse overlap hook into .claude/settings.json',
     )
     .option('--no-mcp', 'skip MCP client registration; write local state and instructions only')
+    .option('--no-adapters', 'skip global harness adapter installation')
+    .option('--require-adapters', 'fail unless every detected harness adapter is ready')
     .action((options) => {
       try {
-        const setupOptions: SetupOptions = { mcp: options.mcp };
+        const setupOptions: SetupOptions = {
+          mcp: options.mcp,
+          adapters: options.adapters,
+          ...(options.requireAdapters === true ? { requireAdapters: true } : {}),
+        };
         if (options.claudeHooks === true) {
           setupOptions.claudeHooks = true;
         }
@@ -96,6 +128,9 @@ export function registerSetupCommand(program: Command): void {
         );
         for (const path of result.written) {
           process.stdout.write(`    ${path}\n`);
+        }
+        if (result.adapters.length > 0) {
+          process.stdout.write(`\n${renderAdapterReport(result.adapters)}\n`);
         }
         if (options.claudeHooks === true) {
           process.stdout.write(

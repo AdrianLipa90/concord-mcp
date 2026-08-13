@@ -1,0 +1,5 @@
+{
+  "name": "concord-relay",
+  "version": "0.1.0",
+  "description": "Delivers Concord peer messages through Gemini CLI lifecycle hooks."
+}

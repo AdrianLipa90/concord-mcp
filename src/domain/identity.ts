@@ -37,6 +37,7 @@ export interface SessionSource {
  */
 export const SESSION_SOURCES: readonly SessionSource[] = [
   { kind: 'claude-code', envVar: 'CLAUDE_CODE_SESSION_ID' },
+  { kind: 'grok', envVar: 'GROK_SESSION_ID' },
 ];
 
 /** How an identity was established, for diagnostics and error messages. */
@@ -49,7 +50,9 @@ export interface AgentIdentity {
 }
 
 /** The one field we need from any client's hook payload. */
-const hookSessionSchema = z.object({ session_id: z.string().optional() }).loose();
+const hookSessionSchema = z
+  .object({ session_id: z.string().optional(), sessionId: z.string().optional() })
+  .loose();
 
 /**
  * A stable agent id for one session of one client, e.g. `claude-code:4f2a91c7`.
@@ -77,7 +80,7 @@ function sourceFor(kind: string | undefined): SessionSource | undefined {
  * that cannot identify itself should fall through to the other strategies
  * rather than fail the tool call it is attached to.
  */
-function hookSessionId(rawJson: string): string | undefined {
+export function hookSessionId(rawJson: string): string | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawJson);
@@ -86,7 +89,7 @@ function hookSessionId(rawJson: string): string | undefined {
   }
   const result = hookSessionSchema.safeParse(parsed);
   if (!result.success) return undefined;
-  const sessionId = result.data.session_id?.trim();
+  const sessionId = (result.data.session_id ?? result.data.sessionId)?.trim();
   return sessionId === undefined || sessionId === '' ? undefined : sessionId;
 }
 

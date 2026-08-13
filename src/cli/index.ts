@@ -6,6 +6,7 @@ import { resolveRepoRoot } from '../config/paths.js';
 import { createTelemetryClient } from '../telemetry/client.js';
 import { VERSION } from '../version.js';
 import { registerCheckCommand } from './commands/check.js';
+import { registerAdaptersCommand } from './commands/adapters.js';
 import { registerDashboardCommand } from './commands/dashboard.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerExportCommand } from './commands/export.js';
@@ -57,6 +58,7 @@ program.hook('postAction', (_command, actionCommand) => {
 });
 
 registerSetupCommand(program);
+registerAdaptersCommand(program);
 registerStatus(program);
 registerWhoCommand(program);
 registerTasks(program);

@@ -2,9 +2,15 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
-import { renderHookPayload, renderMonitorLines } from '../../src/domain/pull-inbox.js';
+import {
+  renderGeminiAfterAgent,
+  renderGeminiAfterTool,
+  renderHookPayload,
+  renderMonitorLines,
+} from '../../src/domain/pull-inbox.js';
 import { CONCORD_SERVER_INSTRUCTIONS } from '../../src/install/instructions.js';
 import { drainInbox, registerPullEndpoint } from '../../src/cli/commands/inbox.js';
+import { monitorCapabilityFor } from '../../src/domain/delivery.js';
 import { agentIdForSession } from '../../src/domain/identity.js';
 import { endpointPromptable, handleSendAgentMessage } from '../../src/tools/agent-messages.js';
 
@@ -96,6 +102,18 @@ describe('pull-transport inbox', () => {
     expect(outlook).toMatch(/next turn/i);
   });
 
+  it('only advertises Cursor idle reachability while its monitor is running', () => {
+    registerPullEndpoint(repos, 'beta', 'cursor');
+    expect(repos.agentEndpoints.getByAgent('beta')?.capabilities).not.toContain('idle');
+
+    drainInbox(repos, 'beta', 'cursor', monitorCapabilityFor('cursor'));
+
+    expect(repos.agentEndpoints.getByAgent('beta')?.capabilities).toContain('idle');
+
+    registerPullEndpoint(repos, 'beta', 'cursor');
+    expect(repos.agentEndpoints.getByAgent('beta')?.capabilities).not.toContain('idle');
+  });
+
   it('tells the sender a Claude Code agent will see it either way', () => {
     registerPullEndpoint(repos, 'beta', 'claude-code');
     const outlook = handleSendAgentMessage(repos, {
@@ -152,6 +170,20 @@ describe('pull-transport inbox', () => {
 
     expect(body).not.toContain('not an instruction from your operator');
     expect(body).toContain('[concord from alpha id=m1]');
+  });
+
+  it('uses Gemini hook contracts for mid-turn context and end-turn retry', () => {
+    const messages = [
+      { messageId: 'm1', senderAgentId: 'alpha', taskId: null, content: 'New constraint' },
+    ];
+    const afterTool: unknown = JSON.parse(renderGeminiAfterTool(messages));
+    const afterAgent: unknown = JSON.parse(renderGeminiAfterAgent(messages));
+    expect(afterTool).toMatchObject({
+      hookSpecificOutput: { additionalContext: '[concord from alpha id=m1]\nNew constraint' },
+    });
+    expect(JSON.stringify(afterTool)).toContain('New constraint');
+    expect(afterAgent).toMatchObject({ decision: 'deny' });
+    expect(JSON.stringify(afterAgent)).toContain('New constraint');
   });
 
   it('gives two sessions started in the same minute different identities', () => {

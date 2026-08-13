@@ -55,7 +55,7 @@ concord doctor   # shows per-task tool adoption
 
 Generated `HANDOFF.md` and `REVIEW_PACKET.md` land in `.concord/`.
 
-With the live-prompt integration approved by `concord setup --agent-comms`,
-another workspace agent can address this Claude session through `update_work`.
-The managed-session adapter pushes streaming input into a busy turn and starts
-a turn while idle; existing sessions need one restart after installation.
+`concord setup` installs the global `concord-relay` plugin. Its native monitor
+polls for the lifetime of an interactive session, so a line of output wakes an
+idle Claude session; PostToolUse and Stop hooks cover messages received while a
+turn is active or ending. Existing sessions need one restart after installation.

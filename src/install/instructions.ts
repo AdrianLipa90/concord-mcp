@@ -1,7 +1,8 @@
 import { RELAYED_MESSAGE_GUIDANCE } from '../domain/pull-inbox.js';
+import { renderHarnessMonitorInstructions } from '../domain/harness-config.js';
 
 /** Version of the generated agent workflow contract. */
-export const CONCORD_INSTRUCTION_VERSION = '2';
+export const CONCORD_INSTRUCTION_VERSION = '6';
 
 /** Concise MCP-native guidance, versioned with the running server. */
 export const CONCORD_SERVER_INSTRUCTIONS = `Concord coordinates coding agents through five workflow tools.
@@ -36,7 +37,9 @@ Keep each claim small and resolve reported overlaps before editing. Concord
 regenerates human-readable review artifacts in \`.concord/\`.
 
 Enforcement remains client-dependent. \`concord doctor\` reports setup and
-workflow adoption; optional hooks can block exact-file collisions.`;
+workflow adoption; optional hooks can block exact-file collisions.
+
+${renderHarnessMonitorInstructions()}`;
 
 /** MDC frontmatter used when creating a fresh Cursor rules file. */
 export const CURSOR_MDC_HEADER = `---

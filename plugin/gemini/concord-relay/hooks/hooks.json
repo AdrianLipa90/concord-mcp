@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "concord-register",
+            "command": "node \"$HOME/.gemini/extensions/concord-relay/hooks/session-register.mjs\"",
+            "timeout": 15000
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "concord-after-tool",
+            "command": "concord inbox drain --from-hook --provider gemini --format gemini-after-tool",
+            "timeout": 15000
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "concord-after-agent",
+            "command": "concord inbox drain --from-hook --provider gemini --format gemini-after-agent",
+            "timeout": 15000
+          }
+        ]
+      }
+    ]
+  }
+}

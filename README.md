@@ -59,20 +59,22 @@ concord setup
 ```
 
 `concord setup` creates the local `.concord/` workspace, registers the MCP server
-(`.mcp.json`, `.cursor/mcp.json`, and Codex's `~/.codex/config.toml`) and writes
+for Claude, Cursor, Gemini, Grok, and Codex (`.mcp.json`, `.cursor/mcp.json`,
+`.gemini/settings.json`, `.grok/config.toml`, and `~/.codex/config.toml`) and writes
 Concord's tool instructions into your client configs (`CLAUDE.md`, `AGENTS.md`,
 `.codex/`, `.cursor/rules/`). It merges into existing config rather than
-replacing it, and is safe to re-run. Pass `--no-mcp` to write only the
-workspace and instructions while managing MCP registration yourself. Restart
-your client afterwards so it picks up the new server.
-
-In an interactive terminal, setup detects Codex, Claude, and Cursor and asks
-once whether to enable their live-prompt integrations. Use
-`concord setup --agent-comms` to approve them non-interactively.
+replacing it, and is safe to re-run. Setup also detects Claude Code, Codex,
+Cursor, Gemini CLI, and Grok Build and attempts to install their global Concord
+adapters independently. Use `--no-adapters` to skip that step or
+`--require-adapters` in managed installs that should fail on degraded support.
+Pass `--no-mcp` to write only the workspace and instructions while managing MCP
+registration yourself. Restart clients afterwards so they load new config.
 
 - [Claude Code](./docs/claude-code.md)
 - [Codex](./docs/codex.md)
 - [Cursor](./docs/cursor.md)
+- [Gemini CLI](./docs/gemini-cli.md)
+- [Grok Build](./docs/grok-build.md)
 
 > There is no universal `/concord` slash command — commands are client-specific.
 > Concord works through MCP tools plus the installed instructions on any
@@ -108,14 +110,19 @@ Writes accept an `agent_id`, which keeps presence live just by working.
 `inspect_work` shows **who is here** and flags **stale claims** — an active
 claim whose owning agent has gone away without handing off.
 
-For live agent-to-agent communication, run `concord setup --agent-comms` (or
-accept the one-time interactive setup prompt), then restart existing client
-sessions once. A prompt uses `update_work` with `operation: "prompt"`, the
+For live agent-to-agent communication, run `concord setup`, then restart existing
+client sessions once. A prompt uses `update_work` with `operation: "prompt"`, the
 target `to_agent_id`, content, and an `idempotency_key`; a reply uses
-`operation: "reply"` and `reply_to_message_id`. Busy targets are steered into
-their current turn, while idle targets start a new turn. Delivery fails
-immediately when the named agent has no reachable relay; Concord does not
-silently reroute it.
+`operation: "reply"` and `reply_to_message_id`. A receipt-bearing adapter steers
+a busy turn or starts an idle turn. Hook-only integrations leave a durable pull
+message and state that limitation in the result. Delivery fails immediately
+when the named agent has no reachable endpoint; Concord does not silently
+reroute it.
+
+`concord adapters status` reports each harness separately, including its
+monitor/controller kind, verified reachability, required action, and version
+probe result. `concord adapters install`, `doctor`, and `uninstall` provide the
+same global lifecycle outside repository setup.
 
 Concord resolves the repository workspace automatically. Operations return its
 `workspace_id` and repository root so a client can detect a misrouted call; the
@@ -190,6 +197,7 @@ concord handoff <task-id>    # print the latest handoff
 concord review-packet <id>   # print the latest review packet
 concord export markdown      # regenerate .concord/ artifacts
 concord doctor               # workspace checks + per-task tool adoption
+concord adapters status      # global harness delivery capability matrix
 
 concord --repo ../project status        # select by repository path from anywhere
 concord --workspace ws_... status       # select an id returned by a Concord operation

@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Repositories, TaskRecord } from '../db/index.js';
 import { resolveActorId, type AgentIdentity } from '../domain/identity.js';
+import { SocketAgentMessageDispatcher } from '../relay/socket-dispatcher.js';
 import {
   finishWorkInputShape,
   type FinishWorkInput,
@@ -37,8 +38,9 @@ import {
 import { handleUpdateTask, type UpdateTaskResult } from './update-task.js';
 import {
   AgentMessageDeliveryError,
-  handleSendAgentMessage,
+  handleSendAgentMessageWithDelivery,
   inspectAgentCommunication,
+  type AgentMessageDispatcher,
   type SendAgentMessageResult,
 } from './agent-messages.js';
 import {
@@ -232,18 +234,23 @@ function updateRequired<T>(value: T | undefined, field: string, operation: strin
 export function handleUpdateWork(
   repos: Repositories,
   input: WithActor<UpdateWorkInput>,
-): UpdateWorkResult {
+  dispatcher: AgentMessageDispatcher,
+): UpdateWorkResult | Promise<UpdateWorkResult> {
   const operation = input.operation ?? 'record';
   if (operation !== 'record') {
-    return handleSendAgentMessage(repos, {
-      operation,
-      agentId: input.agent_id,
-      toAgentId: input.to_agent_id,
-      replyToMessageId: input.reply_to_message_id,
-      taskId: input.task_id,
-      content: input.content,
-      idempotencyKey: updateRequired(input.idempotency_key, 'idempotency_key', operation),
-    });
+    return handleSendAgentMessageWithDelivery(
+      repos,
+      {
+        operation,
+        agentId: input.agent_id,
+        toAgentId: input.to_agent_id,
+        replyToMessageId: input.reply_to_message_id,
+        taskId: input.task_id,
+        content: input.content,
+        idempotencyKey: updateRequired(input.idempotency_key, 'idempotency_key', operation),
+      },
+      dispatcher,
+    );
   }
   return handleUpdateTask(repos, {
     task_id: updateRequired(input.task_id, 'task_id', operation),
@@ -429,6 +436,7 @@ export function registerWorkflowTools(
   onWrite?: () => void,
   selectWorkspace?: SelectWorkspace,
   session?: AgentIdentity,
+  dispatcher: AgentMessageDispatcher = new SocketAgentMessageDispatcher(),
 ): void {
   /** Stamp the resolved actor onto a write tool's arguments. Throws with the
    *  fix-it message when neither the session nor the caller identifies anyone. */
@@ -602,10 +610,10 @@ export function registerWorkflowTools(
         'Record task context or deliver a live prompt/reply to another promptable workspace agent.',
       inputSchema: updateWorkInputShape,
     },
-    (args) => {
+    async (args) => {
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
       try {
-        const result = handleUpdateWork(repos, withActor(args));
+        const result = await handleUpdateWork(repos, withActor(args), dispatcher);
         onWrite?.();
         if ('update' in result) {
           return {
@@ -659,6 +667,8 @@ export function registerWorkflowTools(
             provider_receipt: result.message.providerReceipt,
             delivered_at: result.message.deliveredAt,
             idempotent_replay: result.idempotentReplay,
+            delivery: result.delivery,
+            immediate_mode: result.immediateMode,
             outlook: result.outlook,
           },
         };

@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { migrations } from '../../db/schema.js';
 import { buildAdoption } from '../../domain/adoption.js';
 import { BLOCK_END, BLOCK_START } from '../../install/block.js';
+import { renderAdapterReport, statusGlobalAdapters } from '../../install/adapters/index.js';
 import { CONCORD_INSTRUCTION_VERSION } from '../../install/instructions.js';
 import { endpointPromptable } from '../../tools/agent-messages.js';
 import { openContext, type CliContext } from '../context.js';
@@ -43,7 +44,7 @@ function instructionStatus(repoRoot: string): string {
 }
 
 /** Produce a human-readable diagnostics report for the workspace. */
-export function buildDoctorReport(ctx: CliContext): string {
+export function buildDoctorReport(ctx: CliContext, env: NodeJS.ProcessEnv = process.env): string {
   const dbPath = join(ctx.concordPath, 'concord.db');
   const schemaVersion = z.number().parse(ctx.repos.db.pragma('user_version', { simple: true }));
   const tasks = ctx.repos.tasks.list();
@@ -81,11 +82,11 @@ export function buildDoctorReport(ctx: CliContext): string {
     }
   }
 
-  return lines.join('\n');
+  return `${lines.join('\n')}\n\n${renderAdapterReport(statusGlobalAdapters(env))}`;
 }
 
-export function runDoctor(cwd: string): string {
-  return buildDoctorReport(openContext(cwd));
+export function runDoctor(cwd: string, env: NodeJS.ProcessEnv = process.env): string {
+  return buildDoctorReport(openContext(cwd, env), env);
 }
 
 export function registerDoctorCommand(program: Command): void {

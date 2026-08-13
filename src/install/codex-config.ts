@@ -163,3 +163,39 @@ export function installCodexMcpConfig(env: NodeJS.ProcessEnv = process.env): str
   writeFileSync(fullPath, upsertCodexMcpServer(existing));
   return fullPath;
 }
+
+function removeTable(source: string, header: string): string {
+  const lines = source.split('\n');
+  const start = lines.findIndex((line) => line.trim() === header);
+  if (start === -1) return source;
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (TABLE_HEADER.test(lines[index] ?? '')) {
+      end = index;
+      break;
+    }
+  }
+  return [...lines.slice(0, start), ...lines.slice(end)]
+    .join('\n')
+    .replace(/\n{3,}/gu, '\n\n')
+    .replace(/^\n+/u, '');
+}
+
+/** Remove only Concord-owned Codex config while preserving hook trust tables. */
+export function uninstallCodexConfig(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const fullPath = codexConfigFile(env);
+  if (!existsSync(fullPath)) return undefined;
+  const source = readFileSync(fullPath, 'utf8');
+  const begin = source.indexOf(HOOKS_BEGIN);
+  const end = source.indexOf(HOOKS_END);
+  let withoutHooks = source;
+  if (begin !== -1 && end > begin) {
+    const preserved = foreignTail(source.slice(begin + HOOKS_BEGIN.length, end));
+    withoutHooks =
+      source.slice(0, begin) +
+      (preserved === '' ? '' : `${preserved}\n`) +
+      source.slice(end + HOOKS_END.length);
+  }
+  writeFileSync(fullPath, removeTable(withoutHooks, CODEX_SECTION_HEADER));
+  return fullPath;
+}
