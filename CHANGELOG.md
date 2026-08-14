@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-14
+
+Agents that walked away hours ago no longer crowd the roster. Presence decayed
+as far as `away` and stopped there, so every agent that ever registered stayed
+listed forever: a workspace roster only grew, and the agents actually present
+were buried among sessions that ended days earlier.
+
+### Added
+
+- `archived`, a fourth derived liveness tier after `live`, `idle`, and `away`,
+  reached an hour after an agent was last seen. Archived agents are left out of
+  the roster `buildRoster` returns, which is the single place every presence
+  surface reads — so they disappear from the `concord dashboard` agents panel,
+  `concord who`, `concord status`, the `get_work_state` tool and
+  `concord://work-state` resource, the SessionStart hook's "who else is here",
+  and `WORK_STATE.json` at once.
+
+### Changed
+
+- Nothing is deleted. An agent id keeps its registration, history, and claims,
+  so an archived agent that comes back is live again on its next heartbeat.
+  Archiving is a display state derived from `last_seen` like the rest of
+  liveness, so there is no schema change and no migration.
+- Stale-claim detection still sees archived agents. An active claim left behind
+  by a long-gone agent stays flagged rather than vanishing with its owner.
+- An unparseable `last_seen` now derives `archived` rather than `away`. A
+  corrupt timestamp previously pinned that agent to the roster permanently,
+  which is the situation archiving exists to prevent.
+
 ## [0.8.0] - 2026-08-10
 
 An agent's identity is now derived from its session in one place, instead of
@@ -265,7 +294,8 @@ unimplemented. The recipient now pulls instead.
 - `concord install` writes usage instructions for Claude Code, Codex, and Cursor.
 - Two-agent overlap demo (`pnpm demo`).
 
-[Unreleased]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.6.1...v0.7.0
