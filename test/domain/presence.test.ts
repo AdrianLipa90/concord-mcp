@@ -56,7 +56,11 @@ describe('deriveLiveness', () => {
 
   it('honours custom thresholds', () => {
     expect(
-      deriveLiveness(ago(2000), NOW, { idleAfterMs: 1000, awayAfterMs: 5000, archiveAfterMs: 9000 }),
+      deriveLiveness(ago(2000), NOW, {
+        idleAfterMs: 1000,
+        awayAfterMs: 5000,
+        archiveAfterMs: 9000,
+      }),
     ).toBe('idle');
   });
 });
