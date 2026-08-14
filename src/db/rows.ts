@@ -413,7 +413,7 @@ export function parseEventRow(raw: unknown): EventRecord {
 
 // --- agents ----------------------------------------------------------------
 
-/** Status an agent reports about its own work. Liveness (live/idle/away) is
+/** Status an agent reports about its own work. Liveness (live/idle/away/archived) is
  * derived separately from `last_seen` in `domain/presence.ts`. */
 export const agentStatusValues = ['active', 'blocked', 'waiting_review', 'done'] as const;
 export type AgentStatus = (typeof agentStatusValues)[number];

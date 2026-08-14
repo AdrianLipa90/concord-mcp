@@ -5,19 +5,24 @@ import type { AgentRecord, AgentStatus, TaskRecord } from '../db/index.js';
  * A registered claim is durable, but presence must decay so a crashed or
  * walked-away agent stops looking active. Distinct from the agent's *reported*
  * status (active/blocked/waiting_review/done), which says what it is doing.
+ * Agent records are never deleted: an agent unseen for long enough becomes
+ * `archived` and drops off the roster, but its id and history remain.
  */
-export type Liveness = 'live' | 'idle' | 'away';
+export type Liveness = 'live' | 'idle' | 'away' | 'archived';
 
-/** How long since `last_seen` before an agent is considered idle, then away. */
+/** How long since `last_seen` before an agent is considered idle, away, then
+ * archived. */
 export interface PresenceThresholds {
   idleAfterMs: number;
   awayAfterMs: number;
+  archiveAfterMs: number;
 }
 
-/** Live under 5 min, idle under 30 min, away beyond. */
+/** Live under 5 min, idle under 30 min, away under 1 h, archived beyond. */
 export const DEFAULT_PRESENCE_THRESHOLDS: PresenceThresholds = {
   idleAfterMs: 5 * 60 * 1000,
   awayAfterMs: 30 * 60 * 1000,
+  archiveAfterMs: 60 * 60 * 1000,
 };
 
 /** A single agent's presence for display in a roster. */
@@ -34,7 +39,8 @@ export interface PresenceEntry {
 }
 
 /** Derive liveness from a `last_seen` ISO timestamp relative to `now` (ms since
- * epoch). Unparseable timestamps are treated as `away`. */
+ * epoch). Unparseable timestamps are treated as `archived` — an agent whose
+ * last activity cannot be read must not sit on the roster forever. */
 export function deriveLiveness(
   lastSeen: string,
   now: number,
@@ -42,9 +48,12 @@ export function deriveLiveness(
 ): Liveness {
   const seen = Date.parse(lastSeen);
   if (Number.isNaN(seen)) {
-    return 'away';
+    return 'archived';
   }
   const age = now - seen;
+  if (age >= thresholds.archiveAfterMs) {
+    return 'archived';
+  }
   if (age >= thresholds.awayAfterMs) {
     return 'away';
   }
@@ -54,7 +63,7 @@ export function deriveLiveness(
   return 'live';
 }
 
-const LIVENESS_ORDER: Record<Liveness, number> = { live: 0, idle: 1, away: 2 };
+const LIVENESS_ORDER: Record<Liveness, number> = { live: 0, idle: 1, away: 2, archived: 3 };
 
 function ageSecondsOf(lastSeen: string, now: number): number {
   const seen = Date.parse(lastSeen);
@@ -67,7 +76,8 @@ function ageSecondsOf(lastSeen: string, now: number): number {
 /**
  * Build the presence roster from registered agents: live agents first, then by
  * most-recently-seen. This is the "who is here and what are they doing" view
- * that other agents read before or while working.
+ * that other agents read before or while working. Archived agents are omitted
+ * — they stay registered forever, they just no longer appear here.
  */
 /** An active claim whose owning agent is no longer reliably present. */
 export interface StaleClaim {
@@ -85,7 +95,7 @@ export interface StaleClaim {
  * without handing off" case a durable claim alone cannot surface. Only claims
  * carrying an `agentId` are assessed; unattributed claims are left alone (they
  * predate presence and would be noise). A claim is stale when its agent is
- * `away`, or when the referenced agent never registered.
+ * `away` or `archived`, or when the referenced agent never registered.
  */
 export function detectStaleClaims(
   tasks: readonly TaskRecord[],
@@ -108,7 +118,9 @@ export function detectStaleClaims(
         reason: 'agent-unregistered',
         ageSeconds: null,
       });
-    } else if (deriveLiveness(agent.lastSeen, now, thresholds) === 'away') {
+    } else if (
+      LIVENESS_ORDER[deriveLiveness(agent.lastSeen, now, thresholds)] >= LIVENESS_ORDER.away
+    ) {
       stale.push({
         taskId: task.taskId,
         title: task.title,
@@ -137,6 +149,7 @@ export function buildRoster(
       lastSeen: agent.lastSeen,
       ageSeconds: ageSecondsOf(agent.lastSeen, now),
     }))
+    .filter((entry) => entry.liveness !== 'archived')
     .sort((a, b) => {
       const byLiveness = LIVENESS_ORDER[a.liveness] - LIVENESS_ORDER[b.liveness];
       if (byLiveness !== 0) {

@@ -36,21 +36,28 @@ describe('deriveLiveness', () => {
     expect(deriveLiveness(ago(10 * 60 * 1000), NOW)).toBe('idle');
   });
 
-  it('is away beyond the away threshold', () => {
-    expect(deriveLiveness(ago(60 * 60 * 1000), NOW)).toBe('away');
+  it('is away between the away and archive thresholds', () => {
+    expect(deriveLiveness(ago(45 * 60 * 1000), NOW)).toBe('away');
+  });
+
+  it('is archived beyond the archive threshold', () => {
+    expect(deriveLiveness(ago(2 * 60 * 60 * 1000), NOW)).toBe('archived');
   });
 
   it('treats the boundary as the later state (>=)', () => {
     expect(deriveLiveness(ago(5 * 60 * 1000), NOW)).toBe('idle');
     expect(deriveLiveness(ago(30 * 60 * 1000), NOW)).toBe('away');
+    expect(deriveLiveness(ago(60 * 60 * 1000), NOW)).toBe('archived');
   });
 
-  it('treats an unparseable timestamp as away', () => {
-    expect(deriveLiveness('not-a-date', NOW)).toBe('away');
+  it('treats an unparseable timestamp as archived', () => {
+    expect(deriveLiveness('not-a-date', NOW)).toBe('archived');
   });
 
   it('honours custom thresholds', () => {
-    expect(deriveLiveness(ago(2000), NOW, { idleAfterMs: 1000, awayAfterMs: 5000 })).toBe('idle');
+    expect(
+      deriveLiveness(ago(2000), NOW, { idleAfterMs: 1000, awayAfterMs: 5000, archiveAfterMs: 9000 }),
+    ).toBe('idle');
   });
 });
 
@@ -69,7 +76,7 @@ describe('buildRoster', () => {
   it('orders live agents first, then most-recently-seen', () => {
     const roster = buildRoster(
       [
-        agent({ agentId: 'away-old', lastSeen: ago(60 * 60 * 1000) }),
+        agent({ agentId: 'away-old', lastSeen: ago(45 * 60 * 1000) }),
         agent({ agentId: 'live-older', lastSeen: ago(2 * 60 * 1000) }),
         agent({ agentId: 'idle-mid', lastSeen: ago(10 * 60 * 1000) }),
         agent({ agentId: 'live-newer', lastSeen: ago(30 * 1000) }),
@@ -82,6 +89,15 @@ describe('buildRoster', () => {
       'idle-mid',
       'away-old',
     ]);
+  });
+
+  it('omits archived agents (unseen for an hour) without deleting them', () => {
+    const agents = [
+      agent({ agentId: 'still-away', lastSeen: ago(45 * 60 * 1000) }),
+      agent({ agentId: 'long-gone', lastSeen: ago(3 * 60 * 60 * 1000) }),
+    ];
+    expect(buildRoster(agents, NOW).map((entry) => entry.agentId)).toEqual(['still-away']);
+    expect(agents).toHaveLength(2);
   });
 
   it('returns an empty roster when no agents are registered', () => {
@@ -117,13 +133,24 @@ describe('detectStaleClaims', () => {
   it('flags an active claim whose owning agent is away', () => {
     const stale = detectStaleClaims(
       [task({ taskId: 'T-1', agentId: 'claude-code:7p8v' })],
-      [agent({ agentId: 'claude-code:7p8v', lastSeen: ago(60 * 60 * 1000) })],
+      [agent({ agentId: 'claude-code:7p8v', lastSeen: ago(45 * 60 * 1000) })],
       NOW,
     );
     expect(stale).toHaveLength(1);
     expect(stale[0]?.reason).toBe('agent-away');
     expect(stale[0]?.taskId).toBe('T-1');
-    expect(stale[0]?.ageSeconds).toBe(3600);
+    expect(stale[0]?.ageSeconds).toBe(2700);
+  });
+
+  it('still flags a claim whose owning agent is archived', () => {
+    const stale = detectStaleClaims(
+      [task({ taskId: 'T-1', agentId: 'claude-code:7p8v' })],
+      [agent({ agentId: 'claude-code:7p8v', lastSeen: ago(2 * 60 * 60 * 1000) })],
+      NOW,
+    );
+    expect(stale).toHaveLength(1);
+    expect(stale[0]?.reason).toBe('agent-away');
+    expect(stale[0]?.ageSeconds).toBe(7200);
   });
 
   it('flags a claim whose agent never registered', () => {
