@@ -133,6 +133,43 @@ describe('local IPC relay', () => {
     }
   });
 
+  it('refuses a duplicate host without unlinking the live relay', async () => {
+    const deliveries: AgentSessionDelivery[] = [];
+    const address = relayAddress(mkdtempSync(join(tmpdir(), 'concord-relay-')), 'codex:target');
+    const adapter = {
+      provider: 'codex',
+      isBusy: () => false,
+      steer: () => Promise.resolve('steered'),
+      inject: (delivery: AgentSessionDelivery) => {
+        deliveries.push(delivery);
+        return Promise.resolve('injected');
+      },
+    };
+    const relay = await startAgentRelay({ repos, agentId: 'codex:target', address, adapter });
+    try {
+      await expect(
+        startAgentRelay({ repos, agentId: 'codex:target', address, adapter }),
+      ).rejects.toThrow(/already active/i);
+
+      const result = await handleSendAgentMessageWithDelivery(
+        repos,
+        {
+          operation: 'prompt',
+          agentId: 'codex:sender',
+          toAgentId: 'codex:target',
+          content: 'Still reachable.',
+          idempotencyKey: 'duplicate-host-1',
+        },
+        new SocketAgentMessageDispatcher(),
+      );
+
+      expect(result.delivery).toBe('delivered');
+      expect(deliveries.map((delivery) => delivery.content)).toEqual(['Still reachable.']);
+    } finally {
+      await relay.close();
+    }
+  });
+
   it('keeps a message queued when immediate delivery fails but pull is available', async () => {
     const relay = await startAgentRelay({
       repos,

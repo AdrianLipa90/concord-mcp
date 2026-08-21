@@ -82,7 +82,7 @@ export function buildDoctorReport(ctx: CliContext, env: NodeJS.ProcessEnv = proc
     }
   }
 
-  return `${lines.join('\n')}\n\n${renderAdapterReport(statusGlobalAdapters(env))}`;
+  return `${lines.join('\n')}\n\n${renderAdapterReport(statusGlobalAdapters(env, ctx.repoRoot))}`;
 }
 
 export function runDoctor(cwd: string, env: NodeJS.ProcessEnv = process.env): string {

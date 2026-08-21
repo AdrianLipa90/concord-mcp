@@ -22,6 +22,10 @@ export function openDatabase(filename: string): ConcordDatabase {
   }
   const db = new Database(filename);
   db.pragma('journal_mode = WAL');
+  // Concord routinely has several short-lived hook and monitor processes
+  // sharing one workspace database. Wait for brief writers instead of making
+  // a live inbox watcher exit on the first SQLITE_BUSY response.
+  db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
   return db;

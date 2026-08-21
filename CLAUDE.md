@@ -101,3 +101,29 @@ Every change ships as: **new branch → focused commits → PR → squash-merge 
 main**. Branch names: `feat/…`, `fix/…`, `chore/…`, `docs/…`. Commit messages
 use Conventional Commits (`feat:`, `fix:`, `chore:`, `ci:`, `docs:`). One logical
 concern per PR; keep it under 600 LOC.
+
+<!-- concord:start -->
+
+## Concord — shared work-state for coding agents
+
+<!-- concord:workflow-version=1 -->
+
+This project uses Concord MCP. Keep coordination to the five workflow tools:
+
+- **Before editing**, call `start_work` with the task, your agent kind/id, and
+  expected files or modules. It registers presence, accepts assigned work when
+  appropriate, claims the scope, and returns overlap warnings.
+- Use `inspect_work` to read the workspace or one task. Use `update_work` for
+  durable progress, decisions, assumptions, questions, blockers, and findings.
+- Use `transfer_work` for assignment, acceptance, decline, release,
+  reassignment, evidence-bearing handoff offers, and reopening.
+- **Before finishing**, call `finish_work` once with the outcome, changed
+  files, tests, assumptions, decisions, risks, guardrails, and provenance. It
+  records evidence and can mark work review-ready or terminal.
+
+Keep each claim small and resolve reported overlaps before editing. Concord
+regenerates human-readable review artifacts in `.concord/`.
+
+Enforcement remains client-dependent. `concord doctor` reports setup and
+workflow adoption; optional hooks can block exact-file collisions.
+<!-- concord:end -->

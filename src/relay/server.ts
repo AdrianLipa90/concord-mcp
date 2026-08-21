@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, unlinkSync } from 'node:fs';
-import { createServer, type Server, type Socket } from 'node:net';
+import { createConnection, createServer, type Server, type Socket } from 'node:net';
 
 import type { Repositories } from '../db/index.js';
 import {
@@ -48,6 +48,33 @@ function removeUnixSocket(address: string): void {
   unlinkSync(address);
 }
 
+function socketAcceptingConnections(address: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection(address);
+    const finish = (accepting: boolean): void => {
+      socket.destroy();
+      resolve(accepting);
+    };
+    socket.setTimeout(250, () => {
+      finish(false);
+    });
+    socket.once('connect', () => {
+      finish(true);
+    });
+    socket.once('error', () => {
+      finish(false);
+    });
+  });
+}
+
+async function prepareRelayAddress(address: string): Promise<void> {
+  if (process.platform === 'win32' || !existsSync(address)) return;
+  if (await socketAcceptingConnections(address)) {
+    throw new Error(`A Concord relay is already active at ${address}.`);
+  }
+  removeUnixSocket(address);
+}
+
 function listen(server: Server, address: string): Promise<void> {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -73,7 +100,10 @@ export async function startAgentRelay(
   if (options.repos.agents.get(options.agentId) === undefined) {
     throw new Error(`Agent ${options.agentId} is not registered.`);
   }
-  removeUnixSocket(options.address);
+  // Never unlink a live listener. Duplicate SessionStart hooks used to race
+  // here: the second host detached the first host's pathname, making whichever
+  // process survived impossible to reach even though its endpoint stayed live.
+  await prepareRelayAddress(options.address);
 
   const ttlMs = options.ttlMs ?? 15_000;
   const endpointId = randomUUID();
@@ -188,14 +218,15 @@ export async function startAgentRelay(
       closed = true;
       clearInterval(heartbeat);
       const current = options.repos.agentEndpoints.getByAgent(options.agentId);
-      if (current?.endpointId === endpointId) options.repos.agentEndpoints.disconnect(endpointId);
+      const ownsAddress = current?.endpointId === endpointId;
+      if (ownsAddress) options.repos.agentEndpoints.disconnect(endpointId);
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {
           if (error === undefined) resolve();
           else reject(error);
         });
       });
-      removeUnixSocket(options.address);
+      if (ownsAddress) removeUnixSocket(options.address);
     },
   };
 }

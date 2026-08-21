@@ -92,6 +92,74 @@ export function drainInbox(
   return claimed.map(toDeliverable);
 }
 
+function isSqliteBusy(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const code: unknown = Reflect.get(error, 'code');
+  return typeof code === 'string' && code.startsWith('SQLITE_BUSY');
+}
+
+/**
+ * Poll until a monitor receives a message or the owning harness stops it.
+ * Signal listeners are removed on every completion path: leaving them attached
+ * keeps Node's event loop alive after `--once`, which prevents harnesses such
+ * as Gemini from observing the background command completion.
+ */
+export async function watchInbox(
+  repos: Repositories,
+  agentId: string,
+  provider: string,
+  interval: number,
+  once: boolean,
+  emit: (messages: readonly DeliverableMessage[]) => void,
+): Promise<void> {
+  const monitorCapability = monitorCapabilityFor(provider);
+  await new Promise<void>((resolve, reject) => {
+    let timer: NodeJS.Timeout | undefined;
+    let finished = false;
+    const finish = (error?: unknown): void => {
+      if (finished) return;
+      finished = true;
+      if (timer !== undefined) clearTimeout(timer);
+      process.off('SIGINT', stopWatching);
+      process.off('SIGTERM', stopWatching);
+      try {
+        registerPullEndpoint(repos, agentId, provider);
+      } catch (registrationError) {
+        if (error === undefined) error = registrationError;
+      }
+      if (error === undefined) resolve();
+      else reject(error instanceof Error ? error : new Error('Inbox monitor failed.'));
+    };
+    const poll = (): void => {
+      let messages: DeliverableMessage[];
+      try {
+        messages = drainInbox(repos, agentId, provider, monitorCapability);
+      } catch (error) {
+        // A monitor is the session's live receive endpoint. Transient SQLite
+        // contention must delay a poll, never tear that endpoint down.
+        if (isSqliteBusy(error)) {
+          timer = setTimeout(poll, interval);
+          return;
+        }
+        finish(error);
+        return;
+      }
+      if (messages.length > 0) emit(messages);
+      if (once && messages.length > 0) {
+        finish();
+        return;
+      }
+      timer = setTimeout(poll, interval);
+    };
+    function stopWatching(): void {
+      finish();
+    }
+    process.once('SIGINT', stopWatching);
+    process.once('SIGTERM', stopWatching);
+    poll();
+  });
+}
+
 /**
  * Whether this repository already uses Concord.
  *
@@ -249,35 +317,36 @@ export function registerInboxCommand(program: Command): void {
     .option('--provider <name>', 'Client the agent runs in', 'grok')
     .option('--interval <ms>', 'Polling interval in milliseconds', '1000')
     .option('--once', 'Exit after emitting the first non-empty batch')
+    .option('--from-hook', 'Read the native session id from a hook payload on stdin')
+    .option('--format <format>', 'Output format: monitor or stop', 'monitor')
     .action(async (options) => {
       if (!workspaceExists(process.cwd())) return;
       const context = openContext(process.cwd());
-      const agentId = resolveAgentId(options.agent, process.env, { kind: options.provider });
+      const hookPayload = options.fromHook === true ? (readHookPayload() ?? '') : undefined;
+      const agentId = resolveAgentId(options.agent, process.env, {
+        kind: options.provider,
+        ...(hookPayload === undefined ? {} : { hookPayload }),
+      });
       const parsedInterval = Number.parseInt(options.interval, 10);
       if (!Number.isFinite(parsedInterval) || parsedInterval < 250) {
         throw new Error('--interval must be at least 250 milliseconds.');
       }
-      const monitorCapability = monitorCapabilityFor(options.provider);
-      await new Promise<void>((resolve) => {
-        let timer: NodeJS.Timeout | undefined;
-        const poll = (): void => {
-          const messages = drainInbox(context.repos, agentId, options.provider, monitorCapability);
-          for (const line of renderMonitorLines(messages)) process.stdout.write(`${line}\n`);
-          if (options.once === true && messages.length > 0) {
-            registerPullEndpoint(context.repos, agentId, options.provider);
-            resolve();
+      if (options.format !== 'monitor' && options.format !== 'stop') {
+        throw new Error(`Unknown --format: ${options.format}`);
+      }
+      await watchInbox(
+        context.repos,
+        agentId,
+        options.provider,
+        parsedInterval,
+        options.once === true,
+        (messages) => {
+          if (options.format === 'stop') {
+            process.stdout.write(renderHookPayload('stop', messages));
             return;
           }
-          timer = setTimeout(poll, parsedInterval);
-        };
-        const stopWatching = (): void => {
-          if (timer !== undefined) clearTimeout(timer);
-          registerPullEndpoint(context.repos, agentId, options.provider);
-          resolve();
-        };
-        process.once('SIGINT', stopWatching);
-        process.once('SIGTERM', stopWatching);
-        poll();
-      });
+          for (const line of renderMonitorLines(messages)) process.stdout.write(`${line}\n`);
+        },
+      );
     });
 }

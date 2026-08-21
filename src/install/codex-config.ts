@@ -99,6 +99,59 @@ const OWNED_HEADERS = new Set([
   '[[hooks.Stop.hooks]]',
 ]);
 
+const LEGACY_CONCORD_HOOKS = [
+  {
+    parent: '[[hooks.SessionStart]]',
+    child: '[[hooks.SessionStart.hooks]]',
+    command: 'command = "concord inbox register --from-hook --provider codex"',
+  },
+  {
+    parent: '[[hooks.PostToolUse]]',
+    child: '[[hooks.PostToolUse.hooks]]',
+    command: 'command = "concord inbox drain --from-hook --provider codex --format post-tool-use"',
+  },
+  {
+    parent: '[[hooks.Stop]]',
+    child: '[[hooks.Stop.hooks]]',
+    command: 'command = "concord inbox drain --from-hook --provider codex --format stop"',
+  },
+] as const;
+
+/** Remove only the exact unfenced hook tables written by older Concord builds. */
+function removeLegacyConcordHooks(source: string): string {
+  const lines = source.split('\n');
+  const kept: string[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const legacy = LEGACY_CONCORD_HOOKS.find((hook) => lines[index]?.trim() === hook.parent);
+    if (legacy === undefined) {
+      kept.push(lines[index] ?? '');
+      index += 1;
+      continue;
+    }
+
+    let child = index + 1;
+    while (child < lines.length && lines[child]?.trim() === '') child += 1;
+    if (lines[child]?.trim() !== legacy.child) {
+      kept.push(lines[index] ?? '');
+      index += 1;
+      continue;
+    }
+
+    let end = child + 1;
+    while (end < lines.length && !TABLE_HEADER.test(lines[end] ?? '')) end += 1;
+    const body = lines.slice(child + 1, end).map((line) => line.trim());
+    if (!body.includes('type = "command"') || !body.includes(legacy.command)) {
+      kept.push(lines[index] ?? '');
+      index += 1;
+      continue;
+    }
+    index = end;
+    while (index < lines.length && lines[index]?.trim() === '') index += 1;
+  }
+  return kept.join('\n').replace(/\n{3,}/gu, '\n\n');
+}
+
 /**
  * Split a previous block into the part we wrote and any part Codex appended.
  *
@@ -129,13 +182,13 @@ export function upsertCodexHooks(existing: string | undefined): string {
   const begin = source.indexOf(HOOKS_BEGIN);
   const end = source.indexOf(HOOKS_END);
   if (begin !== -1 && end > begin) {
-    const head = source.slice(0, begin);
-    const tail = source.slice(end + HOOKS_END.length);
+    const head = removeLegacyConcordHooks(source.slice(0, begin));
+    const tail = removeLegacyConcordHooks(source.slice(end + HOOKS_END.length));
     const preserved = foreignTail(source.slice(begin + HOOKS_BEGIN.length, end));
     const body = preserved === '' ? CONCORD_HOOKS_BLOCK : `${CONCORD_HOOKS_BLOCK}\n\n${preserved}`;
     return `${head}${body}${tail}`;
   }
-  const base = source.replace(/\n*$/u, '');
+  const base = removeLegacyConcordHooks(source).replace(/\n*$/u, '');
   return base === '' ? `${CONCORD_HOOKS_BLOCK}\n` : `${base}\n\n${CONCORD_HOOKS_BLOCK}\n`;
 }
 

@@ -321,7 +321,25 @@ function uninstallCursorHooks(env: NodeJS.ProcessEnv): void {
   });
 }
 
-function statusGemini(env: NodeJS.ProcessEnv): AdapterReport {
+function geminiCompletionInjectionReady(repoRoot: string): boolean {
+  try {
+    const settings = readJsonObject(join(repoRoot, '.gemini', 'settings.json'));
+    const tools = settings['tools'];
+    if (!isRecord(tools)) return false;
+    const shell = tools['shell'];
+    const experimental = settings['experimental'];
+    return (
+      isRecord(shell) &&
+      shell['backgroundCompletionBehavior'] === 'inject' &&
+      isRecord(experimental) &&
+      experimental['modelSteering'] === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function statusGemini(env: NodeJS.ProcessEnv, repoRoot?: string): AdapterReport {
   const config = HARNESS_CONFIGS.gemini;
   const executable = executablePath(config.executable, env);
   if (executable !== undefined) {
@@ -337,7 +355,7 @@ function statusGemini(env: NodeJS.ProcessEnv): AdapterReport {
       };
     }
   }
-  return installedLinkReport(
+  const installed = installedLinkReport(
     config.name,
     executable !== undefined,
     config.monitor.kind,
@@ -345,6 +363,22 @@ function statusGemini(env: NodeJS.ProcessEnv): AdapterReport {
     [...config.installedCapabilities],
     config.installedDetail,
   );
+  if (
+    installed.status !== 'installed' ||
+    repoRoot === undefined ||
+    geminiCompletionInjectionReady(repoRoot)
+  ) {
+    return installed;
+  }
+  return {
+    ...installed,
+    status: 'action_required',
+    capabilities: ['pull', 'steer', 'busy'],
+    detail:
+      'The Gemini extension is installed, but this project is missing ' +
+      'tools.shell.backgroundCompletionBehavior = "inject" or ' +
+      'experimental.modelSteering = true. Run `concord setup` in the project.',
+  };
 }
 
 function statusCursor(env: NodeJS.ProcessEnv): AdapterReport {
@@ -422,12 +456,15 @@ function statusGrok(env: NodeJS.ProcessEnv): AdapterReport {
   };
 }
 
-export function statusGlobalAdapters(env: NodeJS.ProcessEnv = process.env): AdapterReport[] {
+export function statusGlobalAdapters(
+  env: NodeJS.ProcessEnv = process.env,
+  repoRoot?: string,
+): AdapterReport[] {
   return [
     statusClaude(env),
     statusCodex(env),
     statusCursor(env),
-    statusGemini(env),
+    statusGemini(env, repoRoot),
     statusGrok(env),
   ];
 }
@@ -450,6 +487,7 @@ function requirePackagedLink(moduleUrl: string, parts: readonly string[], target
 export function installGlobalAdapters(
   moduleUrl: string,
   env: NodeJS.ProcessEnv = process.env,
+  repoRoot?: string,
 ): AdapterReport[] {
   const failures = new Map<HarnessName, string>();
   const attempt = (harness: HarnessName, action: () => void): void => {
@@ -504,7 +542,7 @@ export function installGlobalAdapters(
     }
   });
 
-  const report = statusGlobalAdapters(env).map((entry) => {
+  const report = statusGlobalAdapters(env, repoRoot).map((entry) => {
     const failure = failures.get(entry.harness);
     return failure === undefined
       ? entry

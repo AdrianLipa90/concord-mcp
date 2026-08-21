@@ -66,7 +66,8 @@ export function upsertMcpServer(existing: string | undefined, repoRoot: string):
  * Register Concord and make Gemini return native background shell completions
  * to the agent. Existing Gemini settings, shell options, and MCP servers are
  * preserved. The `inject` behavior is what turns a completed one-shot inbox
- * watch into a new Gemini turn while the session is otherwise idle.
+ * watch into a new Gemini turn while the session is otherwise idle. Gemini's
+ * idle injection effect is gated separately by experimental model steering.
  */
 export function upsertGeminiSettings(existing: string | undefined, repoRoot: string): string {
   const withServer = looseObjectSchema.parse(JSON.parse(upsertMcpServer(existing, repoRoot)));
@@ -74,6 +75,8 @@ export function upsertGeminiSettings(existing: string | undefined, repoRoot: str
   const tools = currentTools.success ? currentTools.data : {};
   const currentShell = looseObjectSchema.safeParse(tools['shell']);
   const shell = currentShell.success ? currentShell.data : {};
+  const currentExperimental = looseObjectSchema.safeParse(withServer['experimental']);
+  const experimental = currentExperimental.success ? currentExperimental.data : {};
   return `${JSON.stringify(
     {
       ...withServer,
@@ -81,6 +84,7 @@ export function upsertGeminiSettings(existing: string | undefined, repoRoot: str
         ...tools,
         shell: { ...shell, backgroundCompletionBehavior: 'inject' },
       },
+      experimental: { ...experimental, modelSteering: true },
     },
     null,
     2,

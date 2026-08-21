@@ -108,6 +108,56 @@ describe('global harness adapters', () => {
     ]);
   });
 
+  it('requires Gemini completion injection in the current project', () => {
+    const home = mkdtempSync(join(tmpdir(), 'concord-gemini-home-'));
+    const project = mkdtempSync(join(tmpdir(), 'concord-gemini-project-'));
+    const bin = join(home, 'bin');
+    mkdirSync(bin);
+    const gemini = join(bin, 'gemini');
+    writeFileSync(gemini, '#!/bin/sh\necho 0.55.1\n');
+    chmodSync(gemini, 0o755);
+    const env = { HOME: home, PATH: bin };
+    installGlobalAdapters(import.meta.url, env);
+
+    expect(
+      statusGlobalAdapters(env, project).find((entry) => entry.harness === 'gemini'),
+    ).toMatchObject({
+      status: 'action_required',
+      capabilities: ['pull', 'steer', 'busy'],
+    });
+
+    const settingsPath = join(project, '.gemini', 'settings.json');
+    mkdirSync(join(project, '.gemini'));
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify({
+        tools: { shell: { backgroundCompletionBehavior: 'inject' } },
+      })}\n`,
+    );
+
+    expect(
+      statusGlobalAdapters(env, project).find((entry) => entry.harness === 'gemini'),
+    ).toMatchObject({
+      status: 'action_required',
+      capabilities: ['pull', 'steer', 'busy'],
+    });
+
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify({
+        tools: { shell: { backgroundCompletionBehavior: 'inject' } },
+        experimental: { modelSteering: true },
+      })}\n`,
+    );
+
+    expect(
+      statusGlobalAdapters(env, project).find((entry) => entry.harness === 'gemini'),
+    ).toMatchObject({
+      status: 'installed',
+      capabilities: ['pull', 'steer', 'idle', 'busy', 'monitor-command'],
+    });
+  });
+
   it('fails closed below the verified Cursor monitor baseline', () => {
     const home = mkdtempSync(join(tmpdir(), 'concord-cursor-old-'));
     const bin = join(home, 'bin');

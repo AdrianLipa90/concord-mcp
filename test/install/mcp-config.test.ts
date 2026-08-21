@@ -73,9 +73,11 @@ describe('installMcpConfigs', () => {
     const gemini = z
       .object({
         tools: z.object({ shell: z.object({ backgroundCompletionBehavior: z.string() }) }),
+        experimental: z.object({ modelSteering: z.boolean() }),
       })
       .parse(JSON.parse(readFileSync(join(root, '.gemini', 'settings.json'), 'utf8')));
     expect(gemini.tools.shell.backgroundCompletionBehavior).toBe('inject');
+    expect(gemini.experimental.modelSteering).toBe(true);
   });
 
   it('is idempotent and preserves an existing server', () => {
@@ -110,6 +112,7 @@ describe('upsertGeminiSettings', () => {
     const existing = JSON.stringify({
       theme: 'dark',
       tools: { shell: { enableInteractiveShell: true }, custom: { enabled: true } },
+      experimental: { customFeature: true },
       mcpServers: { other: { command: 'other' } },
     });
     const once = upsertGeminiSettings(existing, '/tmp/project');
@@ -125,6 +128,7 @@ describe('upsertGeminiSettings', () => {
           custom: z.object({ enabled: z.boolean() }),
         }),
         mcpServers: z.record(z.string(), z.unknown()),
+        experimental: z.object({ customFeature: z.boolean(), modelSteering: z.boolean() }),
       })
       .parse(JSON.parse(once));
 
@@ -137,6 +141,7 @@ describe('upsertGeminiSettings', () => {
     expect(parsed.tools.custom.enabled).toBe(true);
     expect(parsed.mcpServers).toHaveProperty('other');
     expect(parsed.mcpServers).toHaveProperty(CONCORD_SERVER_KEY);
+    expect(parsed.experimental).toEqual({ customFeature: true, modelSteering: true });
   });
 });
 

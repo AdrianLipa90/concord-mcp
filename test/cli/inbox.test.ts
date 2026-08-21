@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
@@ -9,7 +9,7 @@ import {
   renderMonitorLines,
 } from '../../src/domain/pull-inbox.js';
 import { CONCORD_SERVER_INSTRUCTIONS } from '../../src/install/instructions.js';
-import { drainInbox, registerPullEndpoint } from '../../src/cli/commands/inbox.js';
+import { drainInbox, registerPullEndpoint, watchInbox } from '../../src/cli/commands/inbox.js';
 import { monitorCapabilityFor } from '../../src/domain/delivery.js';
 import { agentIdForSession } from '../../src/domain/identity.js';
 import { endpointPromptable, handleSendAgentMessage } from '../../src/tools/agent-messages.js';
@@ -112,6 +112,44 @@ describe('pull-transport inbox', () => {
 
     registerPullEndpoint(repos, 'beta', 'cursor');
     expect(repos.agentEndpoints.getByAgent('beta')?.capabilities).not.toContain('idle');
+  });
+
+  it('removes signal listeners when a one-shot monitor receives a message', async () => {
+    registerPullEndpoint(repos, 'beta', 'gemini');
+    send(repos, 'wake up', 'monitor-exit');
+    const beforeInt = process.listenerCount('SIGINT');
+    const beforeTerm = process.listenerCount('SIGTERM');
+    const delivered: string[] = [];
+
+    await watchInbox(repos, 'beta', 'gemini', 250, true, (messages) => {
+      delivered.push(...messages.map((message) => message.content));
+    });
+
+    expect(delivered).toEqual(['wake up']);
+    expect(process.listenerCount('SIGINT')).toBe(beforeInt);
+    expect(process.listenerCount('SIGTERM')).toBe(beforeTerm);
+    expect(repos.agentEndpoints.getByAgent('beta')?.capabilities).not.toContain('idle');
+  });
+
+  it('keeps a live watcher running through transient SQLite contention', async () => {
+    registerPullEndpoint(repos, 'beta', 'gemini');
+    send(repos, 'wake up after contention', 'monitor-busy');
+    const claim = repos.agentMessages.claimPendingForRecipient.bind(repos.agentMessages);
+    const busy = Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY_SNAPSHOT' });
+    const claimSpy = vi
+      .spyOn(repos.agentMessages, 'claimPendingForRecipient')
+      .mockImplementationOnce(() => {
+        throw busy;
+      })
+      .mockImplementation(claim);
+    const delivered: string[] = [];
+
+    await watchInbox(repos, 'beta', 'gemini', 1, true, (messages) => {
+      delivered.push(...messages.map((message) => message.content));
+    });
+
+    expect(delivered).toEqual(['wake up after contention']);
+    expect(claimSpy).toHaveBeenCalledTimes(2);
   });
 
   it('tells the sender a Claude Code agent will see it either way', () => {
