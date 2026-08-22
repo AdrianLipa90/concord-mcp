@@ -133,6 +133,9 @@ export function createAgentMessageRepository(db: ConcordDatabase): AgentMessageR
     eventStmt.run({ message_id: messageId, event, detail, created_at: new Date().toISOString() });
   }
 
+  // Acquire the write reservation before listPendingStmt reads. A deferred
+  // transaction can otherwise read an old WAL snapshot, lose a race to a
+  // sender, and fail its write upgrade with SQLITE_BUSY_SNAPSHOT.
   const claimTransaction = db.transaction(claimPending);
 
   return {
@@ -165,7 +168,7 @@ export function createAgentMessageRepository(db: ConcordDatabase): AgentMessageR
       // PostToolUse hook, so two drains overlap routinely. The UPDATE is the
       // claim: whoever flips the row out of 'pending' owns the message, and
       // the loser emits nothing rather than showing the agent a duplicate.
-      return claimTransaction(agentId, provider);
+      return claimTransaction.immediate(agentId, provider);
     },
     listByTask(taskId) {
       const raw: unknown = listByTaskStmt.all(taskId);

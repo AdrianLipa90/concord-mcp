@@ -42,6 +42,51 @@ describe('upsertCodexHooks', () => {
     expect(result.match(/\[\[hooks\.SessionStart\]\]/gu)).toHaveLength(1);
   });
 
+  it('migrates exact legacy unfenced hooks without duplicating relay hosts', () => {
+    const legacy = `model = "gpt-5.6"
+
+[[hooks.SessionStart]]
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "concord inbox register --from-hook --provider codex"
+
+[[hooks.PostToolUse]]
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "concord inbox drain --from-hook --provider codex --format post-tool-use"
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "concord inbox drain --from-hook --provider codex --format stop"
+
+[desktop]
+followUpQueueMode = "queue"
+`;
+
+    const result = upsertCodexHooks(upsertCodexHooks(legacy));
+
+    expect(result.match(/\[\[hooks\.SessionStart\]\]/gu)).toHaveLength(1);
+    expect(result.match(/\[\[hooks\.PostToolUse\]\]/gu)).toHaveLength(1);
+    expect(result.match(/\[\[hooks\.Stop\]\]/gu)).toHaveLength(1);
+    expect(result).toContain('[desktop]\nfollowUpQueueMode = "queue"');
+    expect(result).toContain('model = "gpt-5.6"');
+  });
+
+  it('preserves a user hook with a different command during legacy migration', () => {
+    const custom = `[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "my-session-hook"
+`;
+
+    const result = upsertCodexHooks(custom);
+
+    expect(result).toContain('command = "my-session-hook"');
+    expect(result.match(/\[\[hooks\.SessionStart\]\]/gu)).toHaveLength(2);
+  });
+
   it('keeps hook trust that Codex appended inside the block', () => {
     // Codex writes trust into config.toml at EOF, which lands inside our fence
     // because the end marker is the last line. Losing it silently re-prompts.

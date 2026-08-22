@@ -7,7 +7,7 @@ import type {
   Repositories,
   TaskRecord,
 } from '../db/index.js';
-import { deliveryOutlook, transports } from '../domain/delivery.js';
+import { deliveryOutlook, supportsImmediateDelivery, transports } from '../domain/delivery.js';
 
 export class AgentMessageDeliveryError extends Error {
   constructor(
@@ -36,6 +36,21 @@ export interface SendAgentMessageResult {
   task: TaskRecord | null;
   /** What the sender should expect about when the recipient will see this. */
   outlook: string;
+  delivery: 'delivered' | 'queued_pull';
+  immediateMode: 'inject' | 'steer' | null;
+}
+
+export interface DeliveryReceipt {
+  provider: string;
+  delivery: 'inject' | 'steer';
+  receipt?: string | undefined;
+}
+
+export interface AgentMessageDispatcher {
+  deliver(request: {
+    endpoint: AgentEndpointRecord;
+    message: AgentMessageRecord;
+  }): Promise<DeliveryReceipt>;
 }
 
 /**
@@ -166,6 +181,8 @@ export function handleSendAgentMessage(
         idempotentReplay: true,
         task: task ?? null,
         outlook: deliveryOutlook(known?.capabilities ?? []),
+        delivery: 'delivered',
+        immediateMode: null,
       };
     }
     message = replay;
@@ -212,7 +229,70 @@ export function handleSendAgentMessage(
     idempotentReplay,
     task: activityTask ?? null,
     outlook: deliveryOutlook(endpoint.capabilities),
+    delivery: 'queued_pull',
+    immediateMode: null,
   };
+}
+
+async function dispatchWithRetry(
+  dispatcher: AgentMessageDispatcher,
+  endpoint: AgentEndpointRecord,
+  message: AgentMessageRecord,
+): Promise<DeliveryReceipt> {
+  try {
+    return await dispatcher.deliver({ endpoint, message });
+  } catch {
+    return dispatcher.deliver({ endpoint, message });
+  }
+}
+
+/** Send through a live IPC endpoint when present, otherwise leave a durable pull row. */
+export async function handleSendAgentMessageWithDelivery(
+  repos: Repositories,
+  input: SendAgentMessageInput,
+  dispatcher: AgentMessageDispatcher,
+): Promise<SendAgentMessageResult> {
+  const result = handleSendAgentMessage(repos, input);
+  if (result.message.status !== 'pending') return result;
+
+  const endpoint = repos.agentEndpoints.getByAgent(result.message.recipientAgentId);
+  if (endpoint?.transport !== 'local-ipc' || !supportsImmediateDelivery(endpoint.capabilities)) {
+    return result;
+  }
+
+  try {
+    const receipt = await dispatchWithRetry(dispatcher, endpoint, result.message);
+    const delivered = repos.agentMessages.markDelivered(
+      result.message.messageId,
+      receipt.provider,
+      receipt.receipt ?? receipt.delivery,
+    );
+    return {
+      ...result,
+      message: delivered,
+      delivery: 'delivered',
+      immediateMode: receipt.delivery,
+      outlook:
+        receipt.delivery === 'steer'
+          ? 'The recipient accepted this as steering for its active turn.'
+          : 'The recipient accepted this and started a new turn immediately.',
+    };
+  } catch (error) {
+    if (endpoint.capabilities.includes('pull')) {
+      return {
+        ...result,
+        outlook:
+          `Immediate delivery failed (${error instanceof Error ? error.message : String(error)}); ` +
+          'the message remains queued for the recipient to pull.',
+      };
+    }
+    fail(
+      repos,
+      result.message,
+      'target_unreachable',
+      `Immediate delivery failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 export interface AgentCommunicationView {

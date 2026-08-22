@@ -1,0 +1,22 @@
+{
+  "name": "concord-relay",
+  "displayName": "Concord Relay",
+  "description": "Concord session receiver and Desktop Bridge capability probe for Cursor.",
+  "version": "0.2.0",
+  "publisher": "get-concord-ai",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "concordRelay.probe",
+        "title": "Concord: Inspect Message Receiver"
+      }
+    ]
+  }
+}

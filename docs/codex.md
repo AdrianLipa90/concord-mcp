@@ -43,10 +43,27 @@ concord status
 concord doctor
 ```
 
-With the live-prompt integration approved by `concord setup --agent-comms`,
-another workspace agent can address this Codex session through `update_work`.
-The Codex app-server adapter uses `turn/steer` during an active turn and
-`turn/start` while idle; existing sessions need one restart after installation.
+`concord setup` installs lifecycle hooks and attempts to bootstrap Codex's
+managed app-server daemon with remote control enabled. On SessionStart the hook
+launches a per-session Concord bridge. The bridge uses the official
+`turn/steer` request with `expectedTurnId` while a turn is active and
+`turn/start` while idle. If the daemon or bridge probe fails, the endpoint keeps
+the hook-based pull fallback and reports that the message is queued instead of
+claiming immediate delivery.
 
-> Enforcement is instruction-based on clients without hooks — `concord doctor`
-> makes skipped tools visible regardless.
+Codex app-server delivery is version-gated to the verified protocol baseline.
+Run `concord adapters doctor` after upgrades; `unsupported_version` deliberately
+fails closed until the adapter contract is updated.
+
+Bare Codex CLI does support session-owned background terminals (visible through
+`/ps` and stoppable with `/stop`), but terminal completion does not start a new
+model turn. Codex's asynchronous hook contract has the same boundary: output is
+delivered at the next safe point during an active turn, or waits for the next
+user turn when idle. A background `concord inbox watch` therefore cannot replace
+the app-server controller for idle wakeup. Concord uses `turn/steer` for a busy
+turn and `turn/start` for an idle thread instead. See the official
+[Codex developer commands](https://learn.chatgpt.com/docs/developer-commands?surface=cli)
+and [hooks behavior](https://learn.chatgpt.com/docs/hooks).
+
+> Codex asks you to trust newly installed hooks. Until they are trusted, the
+> bridge cannot learn the native session id and delivery is degraded.

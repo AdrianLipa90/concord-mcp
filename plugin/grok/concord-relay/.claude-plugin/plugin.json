@@ -1,0 +1,7 @@
+{
+  "name": "concord-relay",
+  "description": "Delivers Concord peer messages to Grok Build sessions.",
+  "version": "0.1.0",
+  "author": { "name": "Concord" },
+  "hooks": "./hooks/hooks.json"
+}

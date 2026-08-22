@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -7,6 +7,8 @@ import {
   CODEX_SECTION_HEADER,
   codexConfigFile,
   installCodexMcpConfig,
+  installCodexHooks,
+  uninstallCodexConfig,
   upsertCodexMcpServer,
 } from '../../src/install/codex-config.js';
 import { CONCORD_SERVER_COMMAND } from '../../src/install/mcp-config.js';
@@ -101,5 +103,24 @@ describe('installCodexMcpConfig', () => {
 
     installCodexMcpConfig({ CODEX_HOME: home });
     expect(readFileSync(path, 'utf8')).toBe(first);
+  });
+});
+
+describe('uninstallCodexConfig', () => {
+  it('removes only Concord-owned tables and hook fences', () => {
+    const home = mkdtempSync(join(tmpdir(), 'concord-codex-uninstall-'));
+    const env = { CODEX_HOME: home };
+    installCodexMcpConfig(env);
+    installCodexHooks(env);
+    const path = codexConfigFile(env);
+    const withOther = `${readFileSync(path, 'utf8')}\n[other]\nvalue = 1\n`;
+    writeFileSync(path, withOther);
+
+    uninstallCodexConfig(env);
+
+    const result = readFileSync(path, 'utf8');
+    expect(result).not.toContain(CODEX_SECTION_HEADER);
+    expect(result).not.toContain('concord hooks');
+    expect(result).toContain('[other]');
   });
 });

@@ -99,6 +99,59 @@ const OWNED_HEADERS = new Set([
   '[[hooks.Stop.hooks]]',
 ]);
 
+const LEGACY_CONCORD_HOOKS = [
+  {
+    parent: '[[hooks.SessionStart]]',
+    child: '[[hooks.SessionStart.hooks]]',
+    command: 'command = "concord inbox register --from-hook --provider codex"',
+  },
+  {
+    parent: '[[hooks.PostToolUse]]',
+    child: '[[hooks.PostToolUse.hooks]]',
+    command: 'command = "concord inbox drain --from-hook --provider codex --format post-tool-use"',
+  },
+  {
+    parent: '[[hooks.Stop]]',
+    child: '[[hooks.Stop.hooks]]',
+    command: 'command = "concord inbox drain --from-hook --provider codex --format stop"',
+  },
+] as const;
+
+/** Remove only the exact unfenced hook tables written by older Concord builds. */
+function removeLegacyConcordHooks(source: string): string {
+  const lines = source.split('\n');
+  const kept: string[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const legacy = LEGACY_CONCORD_HOOKS.find((hook) => lines[index]?.trim() === hook.parent);
+    if (legacy === undefined) {
+      kept.push(lines[index] ?? '');
+      index += 1;
+      continue;
+    }
+
+    let child = index + 1;
+    while (child < lines.length && lines[child]?.trim() === '') child += 1;
+    if (lines[child]?.trim() !== legacy.child) {
+      kept.push(lines[index] ?? '');
+      index += 1;
+      continue;
+    }
+
+    let end = child + 1;
+    while (end < lines.length && !TABLE_HEADER.test(lines[end] ?? '')) end += 1;
+    const body = lines.slice(child + 1, end).map((line) => line.trim());
+    if (!body.includes('type = "command"') || !body.includes(legacy.command)) {
+      kept.push(lines[index] ?? '');
+      index += 1;
+      continue;
+    }
+    index = end;
+    while (index < lines.length && lines[index]?.trim() === '') index += 1;
+  }
+  return kept.join('\n').replace(/\n{3,}/gu, '\n\n');
+}
+
 /**
  * Split a previous block into the part we wrote and any part Codex appended.
  *
@@ -129,13 +182,13 @@ export function upsertCodexHooks(existing: string | undefined): string {
   const begin = source.indexOf(HOOKS_BEGIN);
   const end = source.indexOf(HOOKS_END);
   if (begin !== -1 && end > begin) {
-    const head = source.slice(0, begin);
-    const tail = source.slice(end + HOOKS_END.length);
+    const head = removeLegacyConcordHooks(source.slice(0, begin));
+    const tail = removeLegacyConcordHooks(source.slice(end + HOOKS_END.length));
     const preserved = foreignTail(source.slice(begin + HOOKS_BEGIN.length, end));
     const body = preserved === '' ? CONCORD_HOOKS_BLOCK : `${CONCORD_HOOKS_BLOCK}\n\n${preserved}`;
     return `${head}${body}${tail}`;
   }
-  const base = source.replace(/\n*$/u, '');
+  const base = removeLegacyConcordHooks(source).replace(/\n*$/u, '');
   return base === '' ? `${CONCORD_HOOKS_BLOCK}\n` : `${base}\n\n${CONCORD_HOOKS_BLOCK}\n`;
 }
 
@@ -161,5 +214,41 @@ export function installCodexMcpConfig(env: NodeJS.ProcessEnv = process.env): str
   const existing = existsSync(fullPath) ? readFileSync(fullPath, 'utf8') : undefined;
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, upsertCodexMcpServer(existing));
+  return fullPath;
+}
+
+function removeTable(source: string, header: string): string {
+  const lines = source.split('\n');
+  const start = lines.findIndex((line) => line.trim() === header);
+  if (start === -1) return source;
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (TABLE_HEADER.test(lines[index] ?? '')) {
+      end = index;
+      break;
+    }
+  }
+  return [...lines.slice(0, start), ...lines.slice(end)]
+    .join('\n')
+    .replace(/\n{3,}/gu, '\n\n')
+    .replace(/^\n+/u, '');
+}
+
+/** Remove only Concord-owned Codex config while preserving hook trust tables. */
+export function uninstallCodexConfig(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const fullPath = codexConfigFile(env);
+  if (!existsSync(fullPath)) return undefined;
+  const source = readFileSync(fullPath, 'utf8');
+  const begin = source.indexOf(HOOKS_BEGIN);
+  const end = source.indexOf(HOOKS_END);
+  let withoutHooks = source;
+  if (begin !== -1 && end > begin) {
+    const preserved = foreignTail(source.slice(begin + HOOKS_BEGIN.length, end));
+    withoutHooks =
+      source.slice(0, begin) +
+      (preserved === '' ? '' : `${preserved}\n`) +
+      source.slice(end + HOOKS_END.length);
+  }
+  writeFileSync(fullPath, removeTable(withoutHooks, CODEX_SECTION_HEADER));
   return fullPath;
 }

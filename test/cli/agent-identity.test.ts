@@ -38,6 +38,12 @@ describe('resolveAgentId', () => {
   it('explains itself when run outside any session', () => {
     expect(() => resolveAgentId(undefined, {})).toThrow(UNRESOLVED_IDENTITY_MESSAGE);
   });
+
+  it('derives Grok identity from its lifetime hook environment', () => {
+    expect(resolveAgentId(undefined, { GROK_SESSION_ID: SESSION }, { kind: 'grok' })).toMatch(
+      /^grok:[0-9a-f]{8}$/,
+    );
+  });
 });
 
 describe('sessionStartIdentity', () => {

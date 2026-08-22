@@ -41,6 +41,19 @@ export function renderMonitorLines(messages: readonly DeliverableMessage[]): str
   );
 }
 
+/** Gemini AfterTool can append context to the current model turn. */
+export function renderGeminiAfterTool(messages: readonly DeliverableMessage[]): string {
+  return JSON.stringify({
+    hookSpecificOutput: { additionalContext: renderInboxBody(messages) },
+    suppressOutput: true,
+  });
+}
+
+/** Gemini AfterAgent retries with the queued peer message as feedback. */
+export function renderGeminiAfterAgent(messages: readonly DeliverableMessage[]): string {
+  return JSON.stringify({ decision: 'deny', reason: renderInboxBody(messages) });
+}
+
 /**
  * The JSON a command hook prints on stdout. `Stop` must block, otherwise the
  * turn ends before the recipient can read the message; the tool-result hooks
