@@ -11,7 +11,7 @@ import {
   formatUpdateNotice,
   isNewerVersion,
   startBackgroundUpdateCheck,
-} from '../../src/cli/update-notifier.js';
+} from '../../src/update-notifier.js';
 
 function cacheFile(): string {
   return join(mkdtempSync(join(tmpdir(), 'concord-update-')), 'cache.json');

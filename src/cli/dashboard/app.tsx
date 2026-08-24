@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 
-import type { AvailableUpdate } from '../update-notifier.js';
+import type { AvailableUpdate } from '../../update-notifier.js';
 import type { PresenceEntry } from '../../domain/presence.js';
 import type { DashboardSnapshot, DashboardTask } from './model.js';
 

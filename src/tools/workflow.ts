@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Repositories, TaskRecord } from '../db/index.js';
-import type { AvailableUpdate } from '../cli/update-notifier.js';
+import type { AvailableUpdate } from '../update-notifier.js';
 import { receiverActive } from '../domain/delivery.js';
 import { harnessConfigFor } from '../domain/harness-config.js';
 import { resolveActorId, type AgentIdentity } from '../domain/identity.js';

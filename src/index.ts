@@ -2,7 +2,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { writeArtifacts } from './artifacts/index.js';
-import { startBackgroundUpdateCheck } from './cli/update-notifier.js';
+import { startBackgroundUpdateCheck } from './update-notifier.js';
 import { resolveRepoRoot } from './config/paths.js';
 import { resolveIdentity } from './domain/identity.js';
 import { createServer } from './server.js';

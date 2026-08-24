@@ -4,7 +4,7 @@ import { render } from 'ink';
 import { DashboardApp } from '../dashboard/app.js';
 import { buildDashboardSnapshot } from '../dashboard/model.js';
 import { openContext } from '../context.js';
-import { startBackgroundUpdateCheck } from '../update-notifier.js';
+import { startBackgroundUpdateCheck } from '../../update-notifier.js';
 import { VERSION } from '../../version.js';
 
 export const DASHBOARD_TTY_ERROR =

@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Repositories } from './db/index.js';
 import type { AgentIdentity } from './domain/identity.js';
 import { CONCORD_SERVER_INSTRUCTIONS } from './install/instructions.js';
-import type { AvailableUpdate } from './cli/update-notifier.js';
+import type { AvailableUpdate } from './update-notifier.js';
 import { registerWorkStateResource } from './tools/get-work-state.js';
 import { registerWorkflowTools } from './tools/workflow.js';
 import { VERSION } from './version.js';

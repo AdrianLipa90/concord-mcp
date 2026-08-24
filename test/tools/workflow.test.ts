@@ -6,7 +6,7 @@ import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { createServer } from '../../src/server.js';
 import { drainInbox, registerPullEndpoint } from '../../src/cli/commands/inbox.js';
-import type { AvailableUpdate } from '../../src/cli/update-notifier.js';
+import type { AvailableUpdate } from '../../src/update-notifier.js';
 import { resolveIdentity, type AgentIdentity } from '../../src/domain/identity.js';
 import { PUBLIC_WORKFLOW_TOOLS } from '../../src/tools/workflow.js';
 

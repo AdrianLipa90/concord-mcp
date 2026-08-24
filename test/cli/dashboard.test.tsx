@@ -3,7 +3,7 @@ import { cleanup, render } from 'ink-testing-library';
 
 import { DashboardApp } from '../../src/cli/dashboard/app.js';
 import { buildDashboardSnapshot } from '../../src/cli/dashboard/model.js';
-import type { AvailableUpdate } from '../../src/cli/update-notifier.js';
+import type { AvailableUpdate } from '../../src/update-notifier.js';
 import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { handleClaimWork } from '../../src/tools/claim-work.js';

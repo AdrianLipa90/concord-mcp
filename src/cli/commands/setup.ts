@@ -19,7 +19,7 @@ import {
   removeGlobalCursorConcord,
 } from '../../install/mcp-config.js';
 import { openContext } from '../context.js';
-import { findAvailableUpdate, type AvailableUpdate } from '../update-notifier.js';
+import { findAvailableUpdate, type AvailableUpdate } from '../../update-notifier.js';
 import { VERSION } from '../../version.js';
 
 const CONCORD_GITIGNORE_ENTRY = '.concord/';
