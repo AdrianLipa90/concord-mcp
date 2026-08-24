@@ -5,29 +5,40 @@ import { VERSION } from '../version.js';
 import {
   loadTelemetryIdentity,
   markTelemetryNoticeShown,
+  taskPseudonym as deriveTaskPseudonym,
   telemetryConfigFile,
   workspacePseudonym,
+  type TelemetryIdentity,
 } from './identity.js';
+import type { SemanticTelemetryEvent, TelemetryOutcome, TelemetryRecorder } from './events.js';
 
-export const DEFAULT_TELEMETRY_URL = 'https://getconcord.ai/api/telemetry/v1';
+export const DEFAULT_TELEMETRY_URL = 'https://getconcord.ai/api/telemetry/v2';
 const FLUSH_DELAY_MS = 5_000;
 const FETCH_TIMEOUT_MS = 1_500;
 const MAX_BATCH_SIZE = 50;
 const MAX_QUEUE_SIZE = 200;
 
 export type TelemetrySurface = 'mcp' | 'cli';
-export type TelemetryOutcome = 'success' | 'error';
-
-interface QueuedEvent {
+interface EventBase {
   event_id: string;
   sequence: number;
   occurred_at: string;
-  event_type: 'session_started' | 'operation_completed';
-  operation: string | null;
-  outcome: TelemetryOutcome | null;
-  duration_ms: number | null;
   workspace_id: string | null;
 }
+
+type EventPayload =
+  | {
+      event_type: 'session_started';
+    }
+  | {
+      event_type: 'operation_completed';
+      operation: string;
+      outcome: TelemetryOutcome;
+      duration_ms: number;
+    }
+  | SemanticTelemetryEvent;
+
+type QueuedEvent = EventBase & EventPayload;
 
 interface TelemetryClientOptions {
   surface: TelemetrySurface;
@@ -35,6 +46,7 @@ interface TelemetryClientOptions {
   env?: NodeJS.ProcessEnv;
   fetcher?: typeof fetch;
   stderr?: { write(message: string): unknown };
+  recordSessionStarted?: boolean;
 }
 
 interface ClientInfo {
@@ -42,10 +54,9 @@ interface ClientInfo {
   version: string | null;
 }
 
-export class TelemetryClient {
+export class TelemetryClient implements TelemetryRecorder {
   readonly #installationId: string;
   readonly #sessionId = randomUUID();
-  readonly #workspaceKey: string;
   readonly #surface: TelemetrySurface;
   readonly #workspaceRoot: () => string | undefined;
   readonly #endpoint: string;
@@ -56,16 +67,21 @@ export class TelemetryClient {
   #sequence = 0;
   #timer: NodeJS.Timeout | undefined;
   #flushing = false;
+  readonly #identity: TelemetryIdentity;
 
   constructor(installationId: string, workspaceKey: string, options: TelemetryClientOptions) {
     this.#installationId = installationId;
-    this.#workspaceKey = workspaceKey;
     this.#surface = options.surface;
     this.#workspaceRoot = options.workspaceRoot;
     this.#endpoint = options.env?.['CONCORD_TELEMETRY_URL'] ?? DEFAULT_TELEMETRY_URL;
     this.#fetcher = options.fetcher ?? fetch;
     this.#ci = (options.env ?? process.env)['CI'] !== undefined;
-    this.#record('session_started', null, null, null);
+    this.#identity = { installationId, workspaceKey, noticeShown: true };
+    if (options.recordSessionStarted === true) {
+      this.#enqueue({
+        event_type: 'session_started',
+      });
+    }
   }
 
   setClientInfo(name: string, version: string): void {
@@ -86,8 +102,22 @@ export class TelemetryClient {
     };
   }
 
+  taskPseudonym(taskId: string): string | null {
+    const root = this.#workspaceRoot();
+    return root === undefined ? null : deriveTaskPseudonym(this.#identity, root, taskId);
+  }
+
   recordOperation(operation: string, outcome: TelemetryOutcome, durationMs: number): void {
-    this.#record('operation_completed', operation.slice(0, 80), outcome, durationMs);
+    this.#enqueue({
+      event_type: 'operation_completed',
+      operation: operation.slice(0, 80),
+      outcome,
+      duration_ms: Math.min(86_400_000, Math.max(0, Math.round(durationMs))),
+    });
+  }
+
+  recordEvent(event: SemanticTelemetryEvent): void {
+    this.#enqueue(event);
   }
 
   async flush(): Promise<void> {
@@ -105,9 +135,9 @@ export class TelemetryClient {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          schema_version: 1,
+          schema_version: 2,
           installation_id: this.#installationId,
-          session_id: this.#sessionId,
+          invocation_id: this.#sessionId,
           sent_at: new Date().toISOString(),
           source: {
             surface: this.#surface,
@@ -138,36 +168,17 @@ export class TelemetryClient {
     return this.flush();
   }
 
-  #record(
-    eventType: QueuedEvent['event_type'],
-    operation: string | null,
-    outcome: TelemetryOutcome | null,
-    durationMs: number | null,
-  ): void {
+  #enqueue(event: EventPayload): void {
     if (this.#events.length >= MAX_QUEUE_SIZE) {
       this.#events.shift();
     }
     const root = this.#workspaceRoot();
     this.#events.push({
+      ...event,
       event_id: randomUUID(),
       sequence: this.#sequence,
       occurred_at: new Date().toISOString(),
-      event_type: eventType,
-      operation,
-      outcome,
-      duration_ms:
-        durationMs === null ? null : Math.min(86_400_000, Math.max(0, Math.round(durationMs))),
-      workspace_id:
-        root === undefined
-          ? null
-          : workspacePseudonym(
-              {
-                installationId: this.#installationId,
-                workspaceKey: this.#workspaceKey,
-                noticeShown: true,
-              },
-              root,
-            ),
+      workspace_id: root === undefined ? null : workspacePseudonym(this.#identity, root),
     });
     this.#sequence += 1;
     if (this.#events.length >= MAX_BATCH_SIZE) {
@@ -207,7 +218,8 @@ export function createTelemetryClient(
   }
   if (!identity.noticeShown) {
     (options.stderr ?? process.stderr).write(
-      'Concord sends anonymous usage telemetry (no code, paths, or task content). ' +
+      'Concord sends product and coordination telemetry (no code, paths, messages, or task content); ' +
+        'the server stores request IP and country without automatic expiry. ' +
         'Disable with CONCORD_TELEMETRY_DISABLED=1.\n',
     );
     markTelemetryNoticeShown(configFile, identity);

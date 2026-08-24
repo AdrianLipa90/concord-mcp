@@ -25,6 +25,7 @@ import { configureCliWorkspace, parseCliWorkspaceOptions } from './workspace-opt
 const program = new Command();
 let workspaceRoot = resolveRepoRoot(process.cwd(), process.env);
 let activeCommand: { name: string; startedAt: number } | undefined;
+const backgroundCommands = new Set(['drain', 'watch', 'hook']);
 const telemetry = createTelemetryClient({
   surface: 'cli',
   workspaceRoot: () => workspaceRoot,
@@ -48,11 +49,13 @@ program.hook('preAction', (command, actionCommand) => {
 
 program.hook('postAction', (_command, actionCommand) => {
   if (activeCommand?.name === actionCommand.name()) {
-    telemetry?.recordOperation(
-      activeCommand.name,
-      'success',
-      performance.now() - activeCommand.startedAt,
-    );
+    if (!backgroundCommands.has(activeCommand.name)) {
+      telemetry?.recordOperation(
+        activeCommand.name,
+        'success',
+        performance.now() - activeCommand.startedAt,
+      );
+    }
     activeCommand = undefined;
   }
 });
@@ -65,8 +68,8 @@ registerTasks(program);
 registerCheckCommand(program);
 registerDashboardCommand(program);
 registerWatchCommand(program);
-registerHookCommand(program);
-registerInboxCommand(program);
+registerHookCommand(program, telemetry);
+registerInboxCommand(program, telemetry);
 registerHandoffCommand(program);
 registerReviewPacketCommand(program);
 registerExportCommand(program);
@@ -77,11 +80,13 @@ try {
   await program.parseAsync();
 } catch (error) {
   if (activeCommand !== undefined) {
-    telemetry?.recordOperation(
-      activeCommand.name,
-      'error',
-      performance.now() - activeCommand.startedAt,
-    );
+    if (!backgroundCommands.has(activeCommand.name)) {
+      telemetry?.recordOperation(
+        activeCommand.name,
+        'error',
+        performance.now() - activeCommand.startedAt,
+      );
+    }
   }
   throw error;
 } finally {

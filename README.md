@@ -251,16 +251,21 @@ are labelled [`good first issue`](https://github.com/Get-Concord-AI/concord-mcp/
 
 ## Privacy & telemetry
 
-Concord sends anonymous product-usage metadata to `getconcord.ai` so we can
-measure active installations, feature adoption, errors, and performance. Events
-contain random installation/session identifiers, an irreversible per-install
-workspace pseudonym, Concord/Node/platform versions, normalized MCP client
-metadata, and MCP tool or CLI command names, outcomes, and durations.
+Concord sends product and coordination telemetry to `getconcord.ai`. It includes
+random installation/invocation identifiers; irreversible per-install workspace
+and task-flow pseudonyms; Concord/Node/platform versions; normalized client
+metadata; operation names, outcomes, and durations; aggregate overlap/edit-guard
+results; message delivery stages and latencies; task lifecycle transitions and
+elapsed time; and explicitly reported acceptance,
+integration, human-intervention, and rework outcomes.
 
-Concord never sends code, raw file or repository paths, remotes, usernames,
-task or agent identifiers, command arguments, tool inputs/outputs, or task
-content. Set `CONCORD_TELEMETRY_DISABLED=1` (or `DO_NOT_TRACK=1`) to disable
-telemetry. Delivery is best effort and can never make a Concord operation fail.
+Concord never sends code, raw file or repository paths, remotes, usernames, raw
+task or agent identifiers, message identifiers or content, command arguments,
+tool inputs/outputs, or task content. The receiving server stores the request IP
+address and derives/stores a country code. Those server-side fields currently
+have no automatic expiry. Set `CONCORD_TELEMETRY_DISABLED=1` (or
+`DO_NOT_TRACK=1`) to disable telemetry. Delivery is best effort and can never
+make a Concord operation fail.
 
 ## License
 

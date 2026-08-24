@@ -7,6 +7,7 @@ import type { Repositories } from '../../db/index.js';
 import { UNRESOLVED_IDENTITY_MESSAGE } from '../../domain/identity.js';
 import { buildRoster } from '../../domain/presence.js';
 import { ensureAgentRegistered } from '../../tools/register-agent.js';
+import type { TelemetryRecorder } from '../../telemetry/events.js';
 import { sessionStartIdentity } from '../agent-identity.js';
 import { openContext } from '../context.js';
 import { checkFileOverlaps } from './check.js';
@@ -25,6 +26,8 @@ export interface HookDecision {
   block: boolean;
   /** Message for stderr (shown to the agent); empty when there is nothing to say. */
   message: string;
+  result: 'not_applicable' | 'clear' | 'warned' | 'blocked';
+  conflictingTaskCount: number;
 }
 
 /**
@@ -45,17 +48,17 @@ export function decidePreToolUse(
   try {
     parsed = JSON.parse(rawJson);
   } catch {
-    return { block: false, message: '' };
+    return { block: false, message: '', result: 'not_applicable', conflictingTaskCount: 0 };
   }
   const payload = preToolUsePayloadSchema.parse(parsed);
   const filePath = payload.tool_input?.file_path;
   if (filePath === undefined || filePath === '') {
-    return { block: false, message: '' };
+    return { block: false, message: '', result: 'not_applicable', conflictingTaskCount: 0 };
   }
 
   const overlaps = checkFileOverlaps(repos, [filePath], selfTaskId);
   if (overlaps.length === 0) {
-    return { block: false, message: '' };
+    return { block: false, message: '', result: 'clear', conflictingTaskCount: 0 };
   }
 
   const detail = overlaps.map((overlap) => `${overlap.taskId} (${overlap.title})`).join(', ');
@@ -63,11 +66,15 @@ export function decidePreToolUse(
     return {
       block: false,
       message: `Concord: ${filePath} is also claimed by ${detail}. Set CONCORD_TASK=<your task id> to block colliding edits.`,
+      result: 'warned',
+      conflictingTaskCount: overlaps.length,
     };
   }
   return {
     block: true,
     message: `Concord: ${filePath} is claimed by another active task (${detail}). Coordinate or update your claim before editing.`,
+    result: 'blocked',
+    conflictingTaskCount: overlaps.length,
   };
 }
 
@@ -154,7 +161,7 @@ function readStdin(): string {
   }
 }
 
-export function registerHookCommand(program: Command): void {
+export function registerHookCommand(program: Command, telemetry?: TelemetryRecorder): void {
   program
     .command('hook <event>')
     .description(
@@ -178,6 +185,15 @@ export function registerHookCommand(program: Command): void {
         readStdin(),
         process.env['CONCORD_TASK'],
       );
+      if (decision.result !== 'not_applicable') {
+        const taskId = process.env['CONCORD_TASK'];
+        telemetry?.recordEvent({
+          event_type: 'edit_guard_evaluated',
+          task_flow_id: taskId === undefined ? null : telemetry.taskPseudonym(taskId),
+          result: decision.result,
+          conflicting_task_count: decision.conflictingTaskCount,
+        });
+      }
       if (decision.message !== '') {
         process.stderr.write(`${decision.message}\n`);
       }

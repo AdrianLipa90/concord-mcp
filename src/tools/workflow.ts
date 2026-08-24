@@ -5,6 +5,7 @@ import type { AvailableUpdate } from '../update-notifier.js';
 import { receiverActive } from '../domain/delivery.js';
 import { harnessConfigFor } from '../domain/harness-config.js';
 import { resolveActorId, type AgentIdentity } from '../domain/identity.js';
+import type { SemanticTelemetryEvent, TelemetryRecorder } from '../telemetry/events.js';
 import { SocketAgentMessageDispatcher } from '../relay/socket-dispatcher.js';
 import {
   finishWorkInputShape,
@@ -442,6 +443,7 @@ export function registerWorkflowTools(
   session?: AgentIdentity,
   getAvailableUpdate?: () => AvailableUpdate | undefined,
   dispatcher: AgentMessageDispatcher = new SocketAgentMessageDispatcher(),
+  telemetry?: TelemetryRecorder,
 ): void {
   interface WorkflowToolResponse {
     content: { type: 'text'; text: string }[];
@@ -518,6 +520,28 @@ export function registerWorkflowTools(
   const withSessionAdvisories = <T extends WorkflowToolResponse>(result: T): T =>
     withUpdateAdvisory(withReceiverAdvisory(result));
 
+  type TaskTransition = Extract<
+    SemanticTelemetryEvent,
+    { event_type: 'task_lifecycle' }
+  >['transition'];
+  const taskFlowId = (taskId: string): string | undefined =>
+    telemetry?.taskPseudonym(taskId) ?? undefined;
+  const recordTaskTransition = (
+    taskId: string,
+    transition: TaskTransition,
+    status: string,
+  ): void => {
+    const telemetryTaskFlowId = taskFlowId(taskId);
+    if (telemetryTaskFlowId === undefined) return;
+    telemetry?.recordEvent({
+      event_type: 'task_lifecycle',
+      task_flow_id: telemetryTaskFlowId,
+      transition,
+      status,
+      elapsed_ms: null,
+    });
+  };
+
   /** Stamp the resolved actor onto a write tool's arguments. Throws with the
    *  fix-it message when neither the session nor the caller identifies anyone. */
   const withActor = <T extends { agent_id?: string | undefined }>(args: T): WithActor<T> => ({
@@ -543,6 +567,20 @@ export function registerWorkflowTools(
         ...withActor(args),
         kind: session?.kind ?? args.kind,
       });
+      const startedTaskFlowId = taskFlowId(result.claim.task.taskId);
+      if (startedTaskFlowId !== undefined) {
+        telemetry?.recordEvent({
+          event_type: 'claim_evaluated',
+          task_flow_id: startedTaskFlowId,
+          claim_mode: result.resumedBy,
+          checked_task_count: result.claim.checkedAgainst,
+          overlap_count: result.claim.overlaps.length,
+          overlap_kinds: [
+            ...new Set(result.claim.overlaps.flatMap((overlap) => overlap.kinds)),
+          ].sort(),
+          breadth_warning_count: result.claim.breadthReasons.length,
+        });
+      }
       onWrite?.();
       const task = result.claim.task;
       return withSessionAdvisories({
@@ -719,6 +757,24 @@ export function registerWorkflowTools(
             },
           });
         }
+        const messageTaskFlowId =
+          result.message.taskId === null ? null : (taskFlowId(result.message.taskId) ?? null);
+        telemetry?.recordEvent({
+          event_type: 'message_delivery',
+          task_flow_id: messageTaskFlowId,
+          message_kind: args.operation === 'reply' ? 'reply' : 'prompt',
+          stage: 'send',
+          result: result.delivery === 'delivered' ? 'delivered' : 'queued',
+          delivery_mode: result.immediateMode,
+          error_code: null,
+          latency_ms:
+            result.message.deliveredAt === null
+              ? null
+              : Math.max(
+                  0,
+                  Date.parse(result.message.deliveredAt) - Date.parse(result.message.createdAt),
+                ),
+        });
         return withSessionAdvisories({
           content: [
             {
@@ -755,6 +811,16 @@ export function registerWorkflowTools(
       } catch (error) {
         onWrite?.();
         if (error instanceof AgentMessageDeliveryError) {
+          telemetry?.recordEvent({
+            event_type: 'message_delivery',
+            task_flow_id: args.task_id === undefined ? null : (taskFlowId(args.task_id) ?? null),
+            message_kind: args.operation === 'reply' ? 'reply' : 'prompt',
+            stage: 'send',
+            result: 'failed',
+            delivery_mode: null,
+            error_code: error.code,
+            latency_ms: null,
+          });
           return withSessionAdvisories({
             isError: true,
             content: [
@@ -789,6 +855,7 @@ export function registerWorkflowTools(
     (args) => {
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
       const result = handleTransferWork(repos, withActor(args));
+      recordTaskTransition(result.task.taskId, args.action, result.task.status);
       onWrite?.();
       return withSessionAdvisories({
         content: [
@@ -822,6 +889,27 @@ export function registerWorkflowTools(
     (args) => {
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
       const result = handleFinishWork(repos, withActor(args));
+      const finishedTaskFlowId = taskFlowId(result.task.taskId);
+      if (finishedTaskFlowId !== undefined) {
+        telemetry?.recordEvent({
+          event_type: 'task_lifecycle',
+          task_flow_id: finishedTaskFlowId,
+          transition: 'finish',
+          status: result.task.status,
+          elapsed_ms: Math.max(0, Date.now() - Date.parse(result.task.createdAt)),
+        });
+        if (args.reported_outcome !== undefined) {
+          telemetry?.recordEvent({
+            event_type: 'reported_outcome',
+            task_flow_id: finishedTaskFlowId,
+            source: args.reported_outcome.source,
+            acceptance: args.reported_outcome.acceptance,
+            integration: args.reported_outcome.integration,
+            human_intervention_ms: args.reported_outcome.human_intervention_ms ?? null,
+            rework_ms: args.reported_outcome.rework_ms ?? null,
+          });
+        }
+      }
       onWrite?.();
       return withSessionAdvisories({
         content: [

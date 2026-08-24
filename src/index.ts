@@ -23,19 +23,21 @@ async function main(): Promise<void> {
     ensureAgentRegistered(workspaceManager.current().repos, identity, repoRoot);
   }
   const updateCheck = startBackgroundUpdateCheck(VERSION, process.env);
+  const telemetry = createTelemetryClient({
+    surface: 'mcp',
+    workspaceRoot: () => workspaceManager.current().repoRoot,
+    recordSessionStarted: true,
+  });
   const server = createServer(workspaceManager.current().repos, {
     workspaceManager,
     ...(identity === undefined ? {} : { identity }),
     getAvailableUpdate: updateCheck.getAvailableUpdate,
+    ...(telemetry === undefined ? {} : { telemetry }),
     onToolWrite: (workspace) => {
       if (workspace !== undefined) {
         writeArtifacts(workspace.concordPath, workspace.repos);
       }
     },
-  });
-  const telemetry = createTelemetryClient({
-    surface: 'mcp',
-    workspaceRoot: () => workspaceManager.current().repoRoot,
   });
   const stdio = new StdioServerTransport();
   const transport = telemetry === undefined ? stdio : new TelemetryTransport(stdio, telemetry);

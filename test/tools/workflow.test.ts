@@ -8,6 +8,7 @@ import { createServer } from '../../src/server.js';
 import { drainInbox, registerPullEndpoint } from '../../src/cli/commands/inbox.js';
 import type { AvailableUpdate } from '../../src/update-notifier.js';
 import { resolveIdentity, type AgentIdentity } from '../../src/domain/identity.js';
+import type { SemanticTelemetryEvent, TelemetryRecorder } from '../../src/telemetry/events.js';
 import { PUBLIC_WORKFLOW_TOOLS } from '../../src/tools/workflow.js';
 
 interface Harness {
@@ -19,12 +20,14 @@ async function connect(
   repos: Repositories,
   identity?: AgentIdentity,
   availableUpdate?: AvailableUpdate,
+  telemetry?: TelemetryRecorder,
 ): Promise<Harness> {
   const server = createServer(repos, {
     ...(identity === undefined ? {} : { identity }),
     ...(availableUpdate === undefined
       ? {}
       : { getAvailableUpdate: (): AvailableUpdate => availableUpdate }),
+    ...(telemetry === undefined ? {} : { telemetry }),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'workflow-test', version: '0.0.0' });
@@ -188,6 +191,78 @@ describe('simplified workflow MCP contract', () => {
       expect(completed.isError).not.toBe(true);
       expect(repos.tasks.get('TASK-1')?.status).toBe('complete');
       expect(repos.handoffs.latestForTask('TASK-1')?.whatChanged).toBe('Applied final fixes');
+    } finally {
+      await close(harness);
+    }
+  });
+
+  it('emits semantic overlap, lifecycle, and reported outcome events', async () => {
+    const events: SemanticTelemetryEvent[] = [];
+    const telemetry: TelemetryRecorder = {
+      taskPseudonym: () => 'a'.repeat(64),
+      recordOperation: () => undefined,
+      recordEvent: (event) => events.push(event),
+    };
+    const harness = await connect(repos, undefined, undefined, telemetry);
+    try {
+      await harness.client.callTool({
+        name: 'start_work',
+        arguments: {
+          task_id: 'TASK-FIRST',
+          title: 'First task',
+          kind: 'codex',
+          agent_id: 'codex:first',
+          expected_files: ['src/shared.ts'],
+        },
+      });
+      await harness.client.callTool({
+        name: 'start_work',
+        arguments: {
+          task_id: 'TASK-SECOND',
+          title: 'Second task',
+          kind: 'codex',
+          agent_id: 'codex:second',
+          expected_files: ['src/shared.ts'],
+        },
+      });
+      await harness.client.callTool({
+        name: 'finish_work',
+        arguments: {
+          task_id: 'TASK-SECOND',
+          agent_id: 'codex:second',
+          expected_version: 1,
+          outcome: 'complete',
+          what_changed: 'Finished the isolated work',
+          tests_run: ['pnpm test'],
+          provenance: [{ field: 'reported_outcome', source: 'CI run 481' }],
+          reported_outcome: {
+            source: 'ci',
+            acceptance: 'accepted',
+            integration: 'passed',
+          },
+        },
+      });
+
+      const claims = events.filter((event) => event.event_type === 'claim_evaluated');
+      expect(claims).toHaveLength(2);
+      expect(claims[1]).toMatchObject({ overlap_count: 1, overlap_kinds: ['same_file'] });
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          event_type: 'task_lifecycle',
+          transition: 'finish',
+          status: 'complete',
+        }),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          event_type: 'reported_outcome',
+          source: 'ci',
+          acceptance: 'accepted',
+          integration: 'passed',
+        }),
+      );
+      expect(JSON.stringify(events)).not.toContain('TASK-SECOND');
+      expect(JSON.stringify(events)).not.toContain('src/shared.ts');
     } finally {
       await close(harness);
     }

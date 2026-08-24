@@ -22,6 +22,7 @@ import {
   type DeliverableMessage,
 } from '../../domain/pull-inbox.js';
 import { ensureAgentRegistered } from '../../tools/register-agent.js';
+import type { TelemetryRecorder } from '../../telemetry/events.js';
 import { resolveAgentId } from '../agent-identity.js';
 import { openContext } from '../context.js';
 
@@ -81,12 +82,20 @@ function toDeliverable(message: {
   senderAgentId: string;
   taskId: string | null;
   content: string;
+  replyToMessageId: string | null;
+  createdAt: string;
+  deliveredAt: string | null;
 }): DeliverableMessage {
   return {
     messageId: message.messageId,
     senderAgentId: message.senderAgentId,
     taskId: message.taskId,
     content: message.content,
+    messageKind: message.replyToMessageId === null ? 'prompt' : 'reply',
+    deliveryLatencyMs:
+      message.deliveredAt === null
+        ? null
+        : Math.max(0, Date.parse(message.deliveredAt) - Date.parse(message.createdAt)),
   };
 }
 
@@ -230,7 +239,25 @@ function launchCodexAdapterHost(repoRoot: string, agentId: string, threadId: str
   child.unref();
 }
 
-export function registerInboxCommand(program: Command): void {
+function recordDeliveredMessages(
+  telemetry: TelemetryRecorder | undefined,
+  messages: readonly DeliverableMessage[],
+): void {
+  for (const message of messages) {
+    telemetry?.recordEvent({
+      event_type: 'message_delivery',
+      task_flow_id: message.taskId === null ? null : telemetry.taskPseudonym(message.taskId),
+      message_kind: message.messageKind,
+      stage: 'receive',
+      result: 'delivered',
+      delivery_mode: 'pull',
+      error_code: null,
+      latency_ms: message.deliveryLatencyMs,
+    });
+  }
+}
+
+export function registerInboxCommand(program: Command, telemetry?: TelemetryRecorder): void {
   const inbox = program
     .command('inbox')
     .description('Receive live messages other agents addressed to this session');
@@ -312,6 +339,7 @@ export function registerInboxCommand(program: Command): void {
       // Silence matters: a hook that prints on an empty inbox would inject
       // noise into the session on every single tool call.
       if (messages.length === 0) return;
+      recordDeliveredMessages(telemetry, messages);
       if (options.format === 'json') {
         process.stdout.write(`${JSON.stringify(messages)}\n`);
         return;
@@ -366,6 +394,7 @@ export function registerInboxCommand(program: Command): void {
         parsedInterval,
         options.once === true,
         (messages) => {
+          recordDeliveredMessages(telemetry, messages);
           if (options.format === 'stop') {
             process.stdout.write(renderHookPayload('stop', messages));
             return;

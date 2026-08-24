@@ -12,12 +12,17 @@ import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories } from '../../src/db/index.js';
 import { createServer } from '../../src/server.js';
 import { createTelemetryClient, TelemetryClient } from '../../src/telemetry/client.js';
-import { loadTelemetryIdentity, workspacePseudonym } from '../../src/telemetry/identity.js';
+import {
+  loadTelemetryIdentity,
+  taskPseudonym,
+  workspacePseudonym,
+} from '../../src/telemetry/identity.js';
 import { TelemetryTransport } from '../../src/telemetry/transport.js';
 
 const payloadSchema = z.object({
+  schema_version: z.literal(2),
   installation_id: z.string(),
-  session_id: z.string(),
+  invocation_id: z.string(),
   source: z.object({
     client_name: z.string().nullable(),
     client_version: z.string().nullable(),
@@ -25,8 +30,9 @@ const payloadSchema = z.object({
   events: z.array(
     z.object({
       event_type: z.string(),
-      operation: z.string().nullable(),
+      operation: z.string().optional(),
       workspace_id: z.string().nullable(),
+      task_flow_id: z.string().optional(),
     }),
   ),
 });
@@ -47,8 +53,11 @@ describe('telemetry identity', () => {
     }
     const root = '/Users/private-user/Secret Client/repository';
     const pseudonym = workspacePseudonym(first, root);
+    const task = taskPseudonym(first, root, 'SECRET-TASK-42');
     expect(pseudonym).toMatch(/^[0-9a-f]{64}$/u);
     expect(pseudonym).not.toContain('private-user');
+    expect(task).toMatch(/^[0-9a-f]{64}$/u);
+    expect(task).not.toContain('SECRET-TASK-42');
     expect(readFileSync(path, 'utf8')).not.toContain(root);
   });
 });
@@ -84,20 +93,35 @@ describe('telemetry client', () => {
       workspaceRoot: () => sensitiveRoot,
       env: {},
       fetcher,
+      recordSessionStarted: true,
     });
     telemetry.setClientInfo('Internal Secret Client', 'secret version value');
     telemetry.recordOperation('claim_work', 'success', 12.4);
+    const taskFlowId = telemetry.taskPseudonym('PRIVATE-TASK-ID');
+    expect(taskFlowId).not.toBeNull();
+    if (taskFlowId === null) throw new Error('task pseudonym was not created');
+    telemetry.recordEvent({
+      event_type: 'claim_evaluated',
+      task_flow_id: taskFlowId,
+      claim_mode: 'new_claim',
+      checked_task_count: 4,
+      overlap_count: 1,
+      overlap_kinds: ['same_file'],
+      breadth_warning_count: 0,
+    });
     await telemetry.close();
 
     expect(bodies).toHaveLength(1);
     expect(bodies[0]).not.toContain(sensitiveRoot);
     expect(bodies[0]).not.toContain('Internal Secret Client');
     expect(bodies[0]).not.toContain('secret version value');
+    expect(bodies[0]).not.toContain('PRIVATE-TASK-ID');
     const payload = payloadSchema.parse(JSON.parse(bodies[0] ?? ''));
     expect(payload.source).toEqual({ client_name: 'other', client_version: null });
     expect(payload.events.map((event) => event.event_type)).toEqual([
       'session_started',
       'operation_completed',
+      'claim_evaluated',
     ]);
     expect(payload.events[1]?.operation).toBe('claim_work');
     expect(payload.events[0]?.workspace_id).toMatch(/^[0-9a-f]{64}$/u);
@@ -136,7 +160,6 @@ describe('telemetry client', () => {
     const payload = payloadSchema.parse(JSON.parse(bodies[0] ?? ''));
     expect(payload.source).toEqual({ client_name: 'codex', client_version: '1.2.3' });
     expect(payload.events.map((event) => event.operation)).toEqual([
-      null,
       'get_work_state',
       'missing_tool',
     ]);
