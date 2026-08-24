@@ -10,12 +10,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { Command } from '@commander-js/extra-typings';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { buildStatus, renderStatusText } from '../../src/artifacts/work-state-view.js';
-import { registerSetupCommand, runSetup } from '../../src/cli/commands/setup.js';
+import {
+  maybeUpgradeBeforeSetup,
+  registerSetupCommand,
+  runSetup,
+} from '../../src/cli/commands/setup.js';
 import { renderTasks } from '../../src/cli/commands/tasks.js';
 import { runWho } from '../../src/cli/commands/who.js';
 import { openContext } from '../../src/cli/context.js';
@@ -63,6 +67,78 @@ describe('runSetup', () => {
     runSetup(dir, { mcp: false });
 
     expect(readFileSync(gitignorePath, 'utf8')).toBe('node_modules/\n.concord/\n');
+  });
+});
+
+describe('maybeUpgradeBeforeSetup', () => {
+  const update = {
+    currentVersion: '0.10.1',
+    latestVersion: '0.11.0',
+    command: 'npm install -g @concord-ai/concord-mcp@latest',
+  };
+
+  it('does not check for updates outside an interactive terminal', async () => {
+    const resolveUpdate = vi.fn();
+
+    await expect(maybeUpgradeBeforeSetup({ interactive: false, resolveUpdate })).resolves.toBe(
+      false,
+    );
+    expect(resolveUpdate).not.toHaveBeenCalled();
+  });
+
+  it('continues setup when no update is available', async () => {
+    const installUpdate = vi.fn();
+
+    await expect(
+      maybeUpgradeBeforeSetup({
+        interactive: true,
+        resolveUpdate: () => Promise.resolve(undefined),
+        installUpdate,
+      }),
+    ).resolves.toBe(false);
+    expect(installUpdate).not.toHaveBeenCalled();
+  });
+
+  it('continues setup when the user declines the update', async () => {
+    const installUpdate = vi.fn();
+
+    await expect(
+      maybeUpgradeBeforeSetup({
+        interactive: true,
+        resolveUpdate: () => Promise.resolve(update),
+        askToUpgrade: () => Promise.resolve(false),
+        installUpdate,
+      }),
+    ).resolves.toBe(false);
+    expect(installUpdate).not.toHaveBeenCalled();
+  });
+
+  it('upgrades and asks the user to rerun setup when accepted', async () => {
+    const installUpdate = vi.fn(() => Promise.resolve(0));
+    const write = vi.fn();
+
+    await expect(
+      maybeUpgradeBeforeSetup({
+        interactive: true,
+        resolveUpdate: () => Promise.resolve(update),
+        askToUpgrade: () => Promise.resolve(true),
+        installUpdate,
+        write,
+      }),
+    ).resolves.toBe(true);
+    expect(installUpdate).toHaveBeenCalledOnce();
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('Rerun concord setup'));
+  });
+
+  it('fails instead of running setup after an unsuccessful upgrade', async () => {
+    await expect(
+      maybeUpgradeBeforeSetup({
+        interactive: true,
+        resolveUpdate: () => Promise.resolve(update),
+        askToUpgrade: () => Promise.resolve(true),
+        installUpdate: () => Promise.resolve(1),
+      }),
+    ).rejects.toThrow('upgrade failed with exit code 1');
   });
 });
 

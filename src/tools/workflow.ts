@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Repositories, TaskRecord } from '../db/index.js';
+import type { AvailableUpdate } from '../update-notifier.js';
 import { receiverActive } from '../domain/delivery.js';
 import { harnessConfigFor } from '../domain/harness-config.js';
 import { resolveActorId, type AgentIdentity } from '../domain/identity.js';
@@ -438,6 +439,7 @@ export function registerWorkflowTools(
   onWrite?: () => void,
   selectWorkspace?: SelectWorkspace,
   session?: AgentIdentity,
+  getAvailableUpdate?: () => AvailableUpdate | undefined,
   dispatcher: AgentMessageDispatcher = new SocketAgentMessageDispatcher(),
 ): void {
   interface WorkflowToolResponse {
@@ -446,6 +448,7 @@ export function registerWorkflowTools(
     isError?: boolean;
   }
   const warnedInactiveReceivers = new Set<string>();
+  let updateNoticeShown = false;
 
   /** Add one neutral recovery hint per inactive period to this MCP session. */
   const withReceiverAdvisory = <T extends WorkflowToolResponse>(result: T): T => {
@@ -488,6 +491,32 @@ export function registerWorkflowTools(
     };
   };
 
+  /** Surface an available release where background MCP users will actually see it. */
+  const withUpdateAdvisory = <T extends WorkflowToolResponse>(result: T): T => {
+    const availableUpdate = getAvailableUpdate?.();
+    if (availableUpdate === undefined || updateNoticeShown) return result;
+    updateNoticeShown = true;
+    const text =
+      `Concord update available: ${availableUpdate.currentVersion} → ` +
+      `${availableUpdate.latestVersion}. Ask the user to run \`${availableUpdate.command}\` ` +
+      'and restart their MCP client.';
+    return {
+      ...result,
+      content: [...result.content, { type: 'text', text }],
+      structuredContent: {
+        ...result.structuredContent,
+        update_available: {
+          current_version: availableUpdate.currentVersion,
+          latest_version: availableUpdate.latestVersion,
+          command: availableUpdate.command,
+        },
+      },
+    };
+  };
+
+  const withSessionAdvisories = <T extends WorkflowToolResponse>(result: T): T =>
+    withUpdateAdvisory(withReceiverAdvisory(result));
+
   /** Stamp the resolved actor onto a write tool's arguments. Throws with the
    *  fix-it message when neither the session nor the caller identifies anyone. */
   const withActor = <T extends { agent_id?: string | undefined }>(args: T): WithActor<T> => ({
@@ -515,7 +544,7 @@ export function registerWorkflowTools(
       });
       onWrite?.();
       const task = result.claim.task;
-      return withReceiverAdvisory({
+      return withSessionAdvisories({
         content: [
           {
             type: 'text',
@@ -560,7 +589,7 @@ export function registerWorkflowTools(
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
       const result = handleInspectWork(repos, args);
       if (result.scope === 'workspace') {
-        return withReceiverAdvisory({
+        return withSessionAdvisories({
           content: [
             {
               type: 'text',
@@ -586,7 +615,7 @@ export function registerWorkflowTools(
         });
       }
       if (result.scope === 'agent') {
-        return withReceiverAdvisory({
+        return withSessionAdvisories({
           content: [
             {
               type: 'text',
@@ -606,7 +635,7 @@ export function registerWorkflowTools(
         });
       }
       if (result.scope === 'message') {
-        return withReceiverAdvisory({
+        return withSessionAdvisories({
           content: [
             {
               type: 'text',
@@ -624,7 +653,7 @@ export function registerWorkflowTools(
           },
         });
       }
-      return withReceiverAdvisory({
+      return withSessionAdvisories({
         content: [
           {
             type: 'text',
@@ -666,7 +695,7 @@ export function registerWorkflowTools(
         const result = await handleUpdateWork(repos, withActor(args), dispatcher);
         onWrite?.();
         if ('update' in result) {
-          return withReceiverAdvisory({
+          return withSessionAdvisories({
             content: [
               {
                 type: 'text',
@@ -689,7 +718,7 @@ export function registerWorkflowTools(
             },
           });
         }
-        return withReceiverAdvisory({
+        return withSessionAdvisories({
           content: [
             {
               type: 'text',
@@ -725,7 +754,7 @@ export function registerWorkflowTools(
       } catch (error) {
         onWrite?.();
         if (error instanceof AgentMessageDeliveryError) {
-          return withReceiverAdvisory({
+          return withSessionAdvisories({
             isError: true,
             content: [
               {
@@ -760,7 +789,7 @@ export function registerWorkflowTools(
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
       const result = handleTransferWork(repos, withActor(args));
       onWrite?.();
-      return withReceiverAdvisory({
+      return withSessionAdvisories({
         content: [
           {
             type: 'text',
@@ -793,7 +822,7 @@ export function registerWorkflowTools(
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
       const result = handleFinishWork(repos, withActor(args));
       onWrite?.();
-      return withReceiverAdvisory({
+      return withSessionAdvisories({
         content: [
           {
             type: 'text',

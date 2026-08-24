@@ -19,7 +19,7 @@ import { registerStatus } from './commands/status.js';
 import { registerTasks } from './commands/tasks.js';
 import { registerWatchCommand } from './commands/watch.js';
 import { registerWhoCommand } from './commands/who.js';
-import { notifyIfUpdateAvailable } from './update-notifier.js';
+import { notifyIfUpdateAvailable } from '../update-notifier.js';
 import { configureCliWorkspace, parseCliWorkspaceOptions } from './workspace-options.js';
 
 const program = new Command();

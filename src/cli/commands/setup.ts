@@ -1,6 +1,8 @@
 import type { Command } from '@commander-js/extra-typings';
+import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline/promises';
 
 import { writeArtifacts } from '../../artifacts/index.js';
 import { installClaudeHook } from '../../install/claude-hooks.js';
@@ -17,6 +19,8 @@ import {
   removeGlobalCursorConcord,
 } from '../../install/mcp-config.js';
 import { openContext } from '../context.js';
+import { findAvailableUpdate, type AvailableUpdate } from '../../update-notifier.js';
+import { VERSION } from '../../version.js';
 
 const CONCORD_GITIGNORE_ENTRY = '.concord/';
 
@@ -34,6 +38,74 @@ export interface SetupResult {
   concordPath: string;
   written: string[];
   adapters: AdapterReport[];
+}
+
+export interface SetupUpgradeDependencies {
+  env?: NodeJS.ProcessEnv;
+  interactive?: boolean;
+  resolveUpdate?: (
+    currentVersion: string,
+    env: NodeJS.ProcessEnv,
+  ) => Promise<AvailableUpdate | undefined>;
+  askToUpgrade?: (update: AvailableUpdate) => Promise<boolean>;
+  installUpdate?: (env: NodeJS.ProcessEnv) => Promise<number>;
+  write?: (message: string) => void;
+}
+
+async function askToUpgrade(update: AvailableUpdate): Promise<boolean> {
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question(
+      `Concord ${update.currentVersion} → ${update.latestVersion} is available. ` +
+        'Upgrade before setup? [y/N] ',
+    );
+    return /^(?:y|yes)$/iu.test(answer.trim());
+  } finally {
+    prompt.close();
+  }
+}
+
+function installUpdate(env: NodeJS.ProcessEnv): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const child = spawn(npm, ['install', '-g', '@concord-ai/concord-mcp@latest'], {
+      env,
+      shell: false,
+      stdio: 'inherit',
+    });
+    child.once('error', (error) => {
+      reject(error);
+    });
+    child.once('close', (code) => {
+      resolve(code ?? 1);
+    });
+  });
+}
+
+/** Offer an explicit upgrade before setup writes repository or client configuration. */
+export async function maybeUpgradeBeforeSetup(
+  dependencies: SetupUpgradeDependencies = {},
+): Promise<boolean> {
+  const interactive = dependencies.interactive ?? (process.stdin.isTTY && process.stdout.isTTY);
+  if (!interactive) return false;
+
+  const env = dependencies.env ?? process.env;
+  const resolveUpdate = dependencies.resolveUpdate ?? findAvailableUpdate;
+  const update = await resolveUpdate(VERSION, env);
+  if (update === undefined) return false;
+
+  const confirmed = await (dependencies.askToUpgrade ?? askToUpgrade)(update);
+  if (!confirmed) return false;
+
+  const exitCode = await (dependencies.installUpdate ?? installUpdate)(env);
+  if (exitCode !== 0) {
+    throw new Error(`Concord upgrade failed with exit code ${String(exitCode)}.`);
+  }
+
+  (dependencies.write ?? ((message) => process.stdout.write(message)))(
+    `Concord upgraded to ${update.latestVersion}. Rerun concord setup to configure it.\n`,
+  );
+  return true;
 }
 
 /** Ensure Concord's generated workspace is ignored without changing other rules. */
@@ -108,8 +180,10 @@ export function registerSetupCommand(program: Command): void {
     .option('--no-mcp', 'skip MCP client registration; write local state and instructions only')
     .option('--no-adapters', 'skip global harness adapter installation')
     .option('--require-adapters', 'fail unless every detected harness adapter is ready')
-    .action((options) => {
+    .action(async (options) => {
       try {
+        if (await maybeUpgradeBeforeSetup()) return;
+
         const setupOptions: SetupOptions = {
           mcp: options.mcp,
           adapters: options.adapters,

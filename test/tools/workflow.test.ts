@@ -6,6 +6,7 @@ import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { createServer } from '../../src/server.js';
 import { drainInbox, registerPullEndpoint } from '../../src/cli/commands/inbox.js';
+import type { AvailableUpdate } from '../../src/update-notifier.js';
 import { resolveIdentity, type AgentIdentity } from '../../src/domain/identity.js';
 import { PUBLIC_WORKFLOW_TOOLS } from '../../src/tools/workflow.js';
 
@@ -14,8 +15,17 @@ interface Harness {
   server: ReturnType<typeof createServer>;
 }
 
-async function connect(repos: Repositories, identity?: AgentIdentity): Promise<Harness> {
-  const server = createServer(repos, identity === undefined ? {} : { identity });
+async function connect(
+  repos: Repositories,
+  identity?: AgentIdentity,
+  availableUpdate?: AvailableUpdate,
+): Promise<Harness> {
+  const server = createServer(repos, {
+    ...(identity === undefined ? {} : { identity }),
+    ...(availableUpdate === undefined
+      ? {}
+      : { getAvailableUpdate: (): AvailableUpdate => availableUpdate }),
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'workflow-test', version: '0.0.0' });
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -39,6 +49,42 @@ describe('simplified workflow MCP contract', () => {
     try {
       const listed = await harness.client.listTools();
       expect(listed.tools.map((tool) => tool.name)).toEqual([...PUBLIC_WORKFLOW_TOOLS]);
+    } finally {
+      await close(harness);
+    }
+  });
+
+  it('surfaces an available update once through background MCP tool output', async () => {
+    const harness = await connect(repos, undefined, {
+      currentVersion: '0.10.1',
+      latestVersion: '0.11.0',
+      command: 'npm install -g @concord-ai/concord-mcp@latest',
+    });
+    try {
+      const first = await harness.client.callTool({
+        name: 'inspect_work',
+        arguments: {},
+      });
+      expect(first.content).toContainEqual({
+        type: 'text',
+        text:
+          'Concord update available: 0.10.1 → 0.11.0. Ask the user to run ' +
+          '`npm install -g @concord-ai/concord-mcp@latest` and restart their MCP client.',
+      });
+      expect(first.structuredContent).toMatchObject({
+        update_available: {
+          current_version: '0.10.1',
+          latest_version: '0.11.0',
+          command: 'npm install -g @concord-ai/concord-mcp@latest',
+        },
+      });
+
+      const second = await harness.client.callTool({
+        name: 'inspect_work',
+        arguments: {},
+      });
+      expect(JSON.stringify(second)).not.toContain('update_available');
+      expect(JSON.stringify(second)).not.toContain('Concord update available');
     } finally {
       await close(harness);
     }
