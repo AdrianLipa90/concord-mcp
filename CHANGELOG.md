@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-08-24
+
 ### Added
 
 - Background MCP sessions now check npm without blocking startup or tool calls,
@@ -310,7 +312,8 @@ unimplemented. The recipient now pulls instead.
 - `concord install` writes usage instructions for Claude Code, Codex, and Cursor.
 - Two-agent overlap demo (`pnpm demo`).
 
-[Unreleased]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.10.2...HEAD
+[0.10.2]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.10.1...v0.10.2
 [0.9.0]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/Get-Concord-AI/concord-mcp/compare/v0.7.0...v0.7.1
