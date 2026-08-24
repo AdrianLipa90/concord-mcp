@@ -40,6 +40,9 @@ export function handleHandoff(repos: Repositories, input: HandoffInput): Handoff
       `Task ${input.task_id} version conflict: expected ${String(input.expected_version)}, current ${String(existing.version)}.`,
     );
   }
+  if (input.reported_outcome !== undefined && (input.provenance?.length ?? 0) === 0) {
+    throw new Error('provenance is required when reported_outcome is supplied.');
+  }
 
   const reviewReady = input.ready_for_review === true;
   const transact = repos.db.transaction(() => {
@@ -55,6 +58,7 @@ export function handleHandoff(repos: Repositories, input: HandoffInput): Handoff
       guardrailsChecked: input.guardrails_checked ?? [],
       needsReviewFrom: input.needs_review_from ?? [],
       nextSteps: input.next_steps ?? [],
+      reportedOutcome: input.reported_outcome ?? null,
     });
     repos.events.record({
       taskId: input.task_id,

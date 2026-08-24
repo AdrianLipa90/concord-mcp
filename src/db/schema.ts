@@ -220,4 +220,8 @@ export const migrations: readonly string[] = [
   `
   ALTER TABLE agent_endpoints ADD COLUMN receiver_expires_at TEXT;
   `,
+  // 010 — optional, structured outcome evidence attached to a finish/handoff.
+  `
+  ALTER TABLE handoffs ADD COLUMN reported_outcome TEXT;
+  `,
 ];

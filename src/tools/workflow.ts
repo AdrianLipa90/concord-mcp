@@ -385,6 +385,7 @@ export function handleFinishWork(
       diff_size: input.diff_size,
       open_questions: input.open_questions,
       provenance: input.provenance,
+      reported_outcome: input.reported_outcome,
       agent_id: input.agent_id,
       expected_version: input.expected_version,
     });

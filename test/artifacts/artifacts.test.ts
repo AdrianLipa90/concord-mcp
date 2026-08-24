@@ -28,6 +28,12 @@ describe('renderReviewPacketMarkdown', () => {
       what_changed: 'x',
       changed_files: ['src/billing/retry.ts'],
       decisions: ['use a queue'],
+      reported_outcome: {
+        source: 'review',
+        acceptance: 'accepted',
+        integration: 'passed',
+      },
+      provenance: [{ field: 'reported_outcome', source: 'review result' }],
     });
     const { review } = handleReviewReady(repos, {
       task_id: 'TASK-12',
@@ -42,6 +48,8 @@ describe('renderReviewPacketMarkdown', () => {
     expect(md).toContain('# Review Packet: TASK-12 — Retry');
     expect(md).toContain('- `src/billing/retry.ts`');
     expect(md).toContain('- use a queue');
+    expect(md).toContain('## Reported outcome');
+    expect(md).toContain('- Integration: passed');
     expect(md).toContain('- plan: agent reported');
   });
 });

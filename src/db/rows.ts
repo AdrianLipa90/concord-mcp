@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { reportedOutcomeSchema, type ReportedOutcome } from '../domain/schemas.js';
+
 /**
  * Row parsing lives here so the "never typecast" rule holds across the db layer:
  * every raw better-sqlite3 result enters as `unknown` and is narrowed by a Zod
@@ -65,6 +67,12 @@ export interface ProvenanceEntry {
 }
 
 const provenanceSchema = z.array(z.object({ field: z.string(), source: z.string() }));
+
+function parseReportedOutcome(value: string | null): ReportedOutcome | null {
+  if (value === null) return null;
+  const parsed: unknown = JSON.parse(value);
+  return reportedOutcomeSchema.parse(parsed);
+}
 
 /** Parse a JSON-encoded TEXT column into validated provenance entries. */
 export function parseProvenance(json: string): ProvenanceEntry[] {
@@ -223,6 +231,7 @@ export interface HandoffRecord {
   resolvedAt: string | null;
   taskVersion: number | null;
   resolutionReason: string | null;
+  reportedOutcome: ReportedOutcome | null;
   createdAt: string;
 }
 
@@ -256,6 +265,7 @@ const handoffDbRowSchema = z.object({
   resolved_at: z.string().nullable(),
   task_version: z.number().int().nullable(),
   resolution_reason: z.string().nullable(),
+  reported_outcome: z.string().nullable(),
   created_at: z.string(),
 });
 
@@ -281,6 +291,7 @@ export function parseHandoffRow(raw: unknown): HandoffRecord {
     resolvedAt: row.resolved_at,
     taskVersion: row.task_version,
     resolutionReason: row.resolution_reason,
+    reportedOutcome: parseReportedOutcome(row.reported_outcome),
     createdAt: row.created_at,
   };
 }
