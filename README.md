@@ -221,11 +221,9 @@ npm install -g @concord-ai/concord-mcp@latest
 concord --version
 ```
 
-Concord does not auto-update. Upgrading preserves each repository's local
-`.concord/` workspace; any required database migrations run automatically when
-the workspace is next opened. The interactive `concord` CLI checks npm at most
-once per day and prints an update command when a newer stable release is
-available. Set `CONCORD_NO_UPDATE_CHECK=1` to disable this best-effort check.
+Concord checks daily and surfaces available updates in the CLI, MCP tools, and
+dashboard; `concord setup` can install one with confirmation, and
+`CONCORD_NO_UPDATE_CHECK=1` disables checks.
 
 ## What this is / is not
 

@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Background MCP sessions now check npm without blocking startup or tool calls,
+  then surface the update prompt through the next tool result. Users who rarely
+  invoke the interactive CLI are still told when a newer release is available,
+  and the live dashboard keeps the command visible in a yellow banner.
+- Interactive `concord setup` now checks for an available release before
+  changing configuration and offers a default-No upgrade prompt. An accepted
+  upgrade stops setup and asks the user to rerun it with the new version.
+
+### Fixed
+
+- The npm `/latest` request now uses an accepted JSON media type. The previous
+  abbreviated-metadata header received HTTP 406 and silently cached a failed
+  check instead of detecting the published version.
+
 ## [0.9.0] - 2026-08-14
 
 Agents that walked away hours ago no longer crowd the roster. Presence decayed
