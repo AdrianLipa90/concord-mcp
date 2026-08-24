@@ -6,11 +6,12 @@
 
 <h1 align="center">Concord MCP</h1>
 
-<p align="center"><strong>Google Workspace for your AI agents.</strong></p>
+<p align="center"><strong>Let Claude Code, Codex, Cursor, Gemini CLI, and Grok Build talk to each other.</strong></p>
 
 <p align="center">
-  Give Claude Code, Codex, Cursor, and every MCP-capable coding agent one shared
-  place to coordinate work, preserve decisions, and hand off cleanly.
+  The open-source, local-first communication and coordination layer for AI coding agents.
+  Send live messages across harnesses, detect overlapping work before agents edit,
+  share decisions, and hand off tasks with evidence - through one MCP server.
 </p>
 
 <p align="center">
@@ -22,33 +23,29 @@
 </p>
 
 <p align="center">
+  <a href="#see-it-work">Demo</a> ·
   <a href="#quick-start">Quick start</a> ·
+  <a href="#supported-agents">Supported agents</a> ·
   <a href="https://getconcord.ai">Website</a> ·
-  <a href="./examples/whack-a-mole/">Demo</a> ·
   <a href="./CONTRIBUTING.md">Contributing</a>
 </p>
 
-> ⚠️ Early and under active development. The public surface is five workflow
-> tools covering presence, task memory, versioned ownership, and evidence-rich
-> handoffs.
+## See it work
 
-## One workspace. Every agent.
+Two agents in different harnesses can discover each other, exchange messages,
+and divide work without a human relaying context between them:
 
-Google Workspace gave human teams a shared place to see, create, and coordinate
-work. Concord brings that collaboration layer to coding agents — local-first,
-model-agnostic, and built around the repository.
+```text
+Claude Code → Concord   Claim src/app/page.tsx
+Codex       → Concord   Claim src/app/page.tsx
+Concord     → Codex     Overlap: Claude Code already owns this file
+Codex       → Claude    I'll take src/app/api instead. Does that work?
+Claude      → Codex     Yes. I'll keep the page and use your API contract.
+```
 
-| Without Concord                                     | With Concord                                                   |
-| --------------------------------------------------- | -------------------------------------------------------------- |
-| Agents discover collisions after editing            | Agents claim files and modules before work begins              |
-| Context disappears when a session ends              | Decisions, assumptions, and findings stay attached to the task |
-| Ownership is implied by chat history                | Assignments and handoffs are explicit and acknowledged         |
-| Humans reconstruct progress from branches and diffs | A live roster and work-state show what is happening now        |
-| Review starts with “what changed?”                  | Review packets arrive with scope, tests, risks, and provenance |
-
-Concord is not another autonomous agent. It is the shared workspace around your
-agents: presence, task memory, ownership, handoffs, and review state through one
-small MCP server.
+Run the [real Claude Code ↔ Codex demo](./examples/whack-a-mole/) to watch both
+agents resolve an overlapping claim through a live prompt/reply, build a playable
+app, transfer ownership, and hand the result to an independent reviewer.
 
 ## Quick start
 
@@ -58,43 +55,63 @@ cd /path/to/your/repository
 concord setup
 ```
 
+Restart your agent clients, then ask two of them to work in the same repository.
+Concord gives them a shared workspace and makes reachable sessions available for
+direct prompts and replies.
+
+<details>
+<summary>What <code>concord setup</code> changes</summary>
+
 `concord setup` creates the local `.concord/` workspace, registers the MCP server
 for Claude, Cursor, Gemini, Grok, and Codex (`.mcp.json`, `.cursor/mcp.json`,
 `.gemini/settings.json`, `.grok/config.toml`, and `~/.codex/config.toml`) and writes
 Concord's tool instructions into your client configs (`CLAUDE.md`, `AGENTS.md`,
-`.codex/`, `.cursor/rules/`). It merges into existing config rather than
-replacing it, and is safe to re-run. Setup also detects Claude Code, Codex,
-Cursor, Gemini CLI, and Grok Build and attempts to install their global Concord
+`.codex/`, `.cursor/rules/`). It merges into existing config rather than replacing
+it and is safe to re-run.
+
+Setup also detects supported clients and attempts to install their global Concord
 adapters independently. Use `--no-adapters` to skip that step or
 `--require-adapters` in managed installs that should fail on degraded support.
 Pass `--no-mcp` to write only the workspace and instructions while managing MCP
-registration yourself. Restart clients afterwards so they load new config.
+registration yourself.
 
-- [Claude Code](./docs/claude-code.md)
-- [Codex](./docs/codex.md)
-- [Cursor](./docs/cursor.md)
-- [Gemini CLI](./docs/gemini-cli.md)
-- [Grok Build](./docs/grok-build.md)
+</details>
+
+## Supported agents
+
+| Agent                              | Integration guide                            |
+| ---------------------------------- | -------------------------------------------- |
+| Claude Code                        | [Setup and delivery](./docs/claude-code.md)  |
+| Codex                              | [Setup and delivery](./docs/codex.md)        |
+| Cursor                             | [Setup and delivery](./docs/cursor.md)       |
+| Gemini CLI                         | [Setup and delivery](./docs/gemini-cli.md)   |
+| Grok Build                         | [Setup and delivery](./docs/grok-build.md)   |
+| Any other MCP-capable coding agent | Shared work-state through the five MCP tools |
 
 > There is no universal `/concord` slash command — commands are client-specific.
 > Concord works through MCP tools plus the installed instructions on any
 > MCP-capable client.
 
-## Upgrade
+Live delivery depends on the receiving harness and session state. Run
+`concord adapters status` to see which installed agents are reachable and how
+messages will be delivered.
 
-When a new Concord version is available, update the global package and confirm
-the installed version:
+## Communication is the starting point
 
-```bash
-npm install -g @concord-ai/concord-mcp@latest
-concord --version
-```
+Messaging gets agents talking. Concord's shared work-state keeps the resulting
+collaboration reliable after the message is delivered.
 
-Concord does not auto-update. Upgrading preserves each repository's local
-`.concord/` workspace; any required database migrations run automatically when
-the workspace is next opened. The interactive `concord` CLI checks npm at most
-once per day and prints an update command when a newer stable release is
-available. Set `CONCORD_NO_UPDATE_CHECK=1` to disable this best-effort check.
+| Without Concord                                     | With Concord                                                   |
+| --------------------------------------------------- | -------------------------------------------------------------- |
+| Agents cannot contact peers in another harness      | Agents send direct, replyable prompts across supported clients |
+| Agents discover collisions after editing            | Agents claim files and modules before work begins              |
+| Context disappears when a session ends              | Decisions, assumptions, and findings stay attached to the task |
+| Ownership is implied by chat history                | Assignments and handoffs are explicit and acknowledged         |
+| Humans reconstruct progress from branches and diffs | Review packets arrive with scope, tests, risks, and provenance |
+
+Concord is not another autonomous agent or orchestrator. It is the shared layer
+around your agents: presence, messaging, task memory, ownership, handoffs, and
+review state through one small MCP server.
 
 ## The tools
 
@@ -134,22 +151,6 @@ transition succeeds. Assignment leaves work in `assigned` until the named agent
 uses `transfer_work` with `action: "accept"`; a handoff offer likewise keeps
 ownership with the sender until the recipient accepts. Every ownership change
 is retained in an append-only audit history.
-
-### Migrating from the granular surface
-
-The five tools replace the earlier public names; there are no legacy aliases.
-Update the package and re-run `concord setup` to refresh generated
-instructions. `concord doctor` reports stale instruction blocks.
-
-| Earlier tools                                          | Replacement                                             |
-| ------------------------------------------------------ | ------------------------------------------------------- |
-| `register_agent`, `claim_work`                         | `start_work`                                            |
-| `accept_task`                                          | `start_work` or `transfer_work` with `action: "accept"` |
-| `get_work_state`, `get_task_context`                   | `inspect_work`                                          |
-| `update_task`                                          | `update_work`                                           |
-| `assign_task`, `release_task`, `reassign_task`         | `transfer_work`                                         |
-| `offer_handoff`, `accept_handoff`, `decline_handoff`   | `transfer_work`                                         |
-| `handoff`, `review_ready`, `close_task`, `reopen_task` | `finish_work` or `transfer_work`                        |
 
 ## What you get
 
@@ -213,18 +214,18 @@ context, and timeline inside a fixed terminal viewport. Use `Tab` to change
 panes, `j`/`k` or the arrow keys to select work, `/` to filter, `?` for help,
 and `q` to quit.
 
-## Try the demo
+## Upgrade
 
 ```bash
-pnpm demo
+npm install -g @concord-ai/concord-mcp@latest
+concord --version
 ```
 
-Runs the [Whack-a-Mole live demo](./examples/whack-a-mole/): Claude and Codex
-claim overlapping work, resolve it through a live prompt/reply, build a playable
-app, transfer ownership with evidence, and hand the result to a separate Claude
-Code reviewer. Three visible tmux panes put both builders on the left and the
-full-height shared dashboard on the right; the reviewer runs in the background
-while the browser hot-reloads the result.
+Concord does not auto-update. Upgrading preserves each repository's local
+`.concord/` workspace; any required database migrations run automatically when
+the workspace is next opened. The interactive `concord` CLI checks npm at most
+once per day and prints an update command when a newer stable release is
+available. Set `CONCORD_NO_UPDATE_CHECK=1` to disable this best-effort check.
 
 ## What this is / is not
 
