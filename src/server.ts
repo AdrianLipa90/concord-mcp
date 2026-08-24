@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Repositories } from './db/index.js';
 import type { AgentIdentity } from './domain/identity.js';
 import { CONCORD_SERVER_INSTRUCTIONS } from './install/instructions.js';
+import type { AvailableUpdate } from './cli/update-notifier.js';
 import { registerWorkStateResource } from './tools/get-work-state.js';
 import { registerWorkflowTools } from './tools/workflow.js';
 import { VERSION } from './version.js';
@@ -26,6 +27,8 @@ export interface ServerOptions {
    * passing that peer's `agent_id`.
    */
   identity?: AgentIdentity;
+  /** Reads a background update check without blocking an MCP tool call. */
+  getAvailableUpdate?: () => AvailableUpdate | undefined;
 }
 
 /**
@@ -48,6 +51,13 @@ export function createServer(repos: Repositories, options: ServerOptions = {}): 
     options.onToolWrite?.(manager?.current());
     notifyWorkStateChanged();
   };
-  registerWorkflowTools(server, selectedRepos, onWrite, selectWorkspace, options.identity);
+  registerWorkflowTools(
+    server,
+    selectedRepos,
+    onWrite,
+    selectWorkspace,
+    options.identity,
+    options.getAvailableUpdate,
+  );
   return server;
 }

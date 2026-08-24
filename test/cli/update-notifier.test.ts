@@ -1,18 +1,25 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  type AvailableUpdate,
   checkForUpdate,
+  findAvailableUpdate,
   formatUpdateNotice,
   isNewerVersion,
+  startBackgroundUpdateCheck,
 } from '../../src/cli/update-notifier.js';
 
 function cacheFile(): string {
   return join(mkdtempSync(join(tmpdir(), 'concord-update-')), 'cache.json');
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('isNewerVersion', () => {
   it('compares stable semantic versions', () => {
@@ -109,5 +116,76 @@ describe('formatUpdateNotice', () => {
     const notice = formatUpdateNotice('0.4.0', '0.4.1');
     expect(notice).toContain('Concord 0.4.0 → 0.4.1');
     expect(notice).toContain('npm install -g @concord-ai/concord-mcp@latest');
+  });
+});
+
+describe('findAvailableUpdate', () => {
+  it('uses an Accept header supported by the npm latest-version endpoint', async () => {
+    const cacheRoot = mkdtempSync(join(tmpdir(), 'concord-update-fetch-'));
+    const fetchMock = vi.fn(
+      (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        expect(url).toBe('https://registry.npmjs.org/@concord-ai%2fconcord-mcp/latest');
+        expect(init?.headers).toEqual({ accept: 'application/json' });
+        return Promise.resolve(
+          new Response(JSON.stringify({ version: '0.5.0' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      findAvailableUpdate('0.4.0', { XDG_CACHE_HOME: cacheRoot }),
+    ).resolves.toMatchObject({
+      latestVersion: '0.5.0',
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('returns the cached release metadata used by background MCP sessions', async () => {
+    const cacheRoot = mkdtempSync(join(tmpdir(), 'concord-update-root-'));
+    const concordCache = join(cacheRoot, 'concord');
+    mkdirSync(concordCache);
+    writeFileSync(
+      join(concordCache, 'update-check.json'),
+      `${JSON.stringify({ checkedAt: Date.now(), latestVersion: '0.5.0' })}\n`,
+    );
+
+    await expect(findAvailableUpdate('0.4.0', { XDG_CACHE_HOME: cacheRoot })).resolves.toEqual({
+      currentVersion: '0.4.0',
+      latestVersion: '0.5.0',
+      command: 'npm install -g @concord-ai/concord-mcp@latest',
+    });
+  });
+
+  it('skips background checks in CI or when explicitly disabled', async () => {
+    await expect(findAvailableUpdate('0.4.0', { CI: '1' })).resolves.toBeUndefined();
+    await expect(
+      findAvailableUpdate('0.4.0', { CONCORD_NO_UPDATE_CHECK: '1' }),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('startBackgroundUpdateCheck', () => {
+  it('returns immediately and exposes the result after the background check finishes', async () => {
+    let finish: ((update: AvailableUpdate | undefined) => void) | undefined;
+    const resolver = (): Promise<AvailableUpdate | undefined> =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+    const check = startBackgroundUpdateCheck('0.4.0', {}, resolver);
+
+    expect(check.getAvailableUpdate()).toBeUndefined();
+    finish?.({
+      currentVersion: '0.4.0',
+      latestVersion: '0.5.0',
+      command: 'npm install -g @concord-ai/concord-mcp@latest',
+    });
+    await check.done;
+    expect(check.getAvailableUpdate()?.latestVersion).toBe('0.5.0');
   });
 });

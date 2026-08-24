@@ -7,6 +7,8 @@ import { z } from 'zod';
 const REGISTRY_URL = 'https://registry.npmjs.org/@concord-ai%2fconcord-mcp/latest';
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 400;
+const BACKGROUND_FETCH_TIMEOUT_MS = 5_000;
+export const UPDATE_COMMAND = 'npm install -g @concord-ai/concord-mcp@latest';
 
 const registryResponseSchema = z.object({ version: z.string() });
 const updateCacheSchema = z.object({
@@ -25,6 +27,22 @@ interface UpdateCache {
   checkedAt: number;
   latestVersion: string | null;
 }
+
+export interface AvailableUpdate {
+  currentVersion: string;
+  latestVersion: string;
+  command: string;
+}
+
+export interface BackgroundUpdateCheck {
+  getAvailableUpdate: () => AvailableUpdate | undefined;
+  done: Promise<void>;
+}
+
+type UpdateResolver = (
+  currentVersion: string,
+  env: NodeJS.ProcessEnv,
+) => Promise<AvailableUpdate | undefined>;
 
 export interface UpdateCheckOptions {
   currentVersion: string;
@@ -83,11 +101,11 @@ function writeCache(cacheFile: string, cache: UpdateCache): void {
   }
 }
 
-async function fetchLatestVersion(): Promise<string | null> {
+async function fetchLatestVersion(timeoutMs: number = FETCH_TIMEOUT_MS): Promise<string | null> {
   try {
     const response = await fetch(REGISTRY_URL, {
-      headers: { accept: 'application/vnd.npm.install-v1+json' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) {
       return null;
@@ -133,8 +151,49 @@ export function updateCacheFile(env: NodeJS.ProcessEnv = process.env): string {
 export function formatUpdateNotice(currentVersion: string, latestVersion: string): string {
   return [
     `Update available: Concord ${currentVersion} → ${latestVersion}`,
-    'Run: npm install -g @concord-ai/concord-mcp@latest',
+    `Run: ${UPDATE_COMMAND}`,
   ].join('\n');
+}
+
+/** Resolve a cached best-effort update for surfaces other than the interactive CLI. */
+export async function findAvailableUpdate(
+  currentVersion: string,
+  env: NodeJS.ProcessEnv = process.env,
+  fetchTimeoutMs: number = FETCH_TIMEOUT_MS,
+): Promise<AvailableUpdate | undefined> {
+  if (env['CI'] !== undefined || env['CONCORD_NO_UPDATE_CHECK'] === '1') {
+    return undefined;
+  }
+  const latestVersion = await checkForUpdate({
+    currentVersion,
+    cacheFile: updateCacheFile(env),
+    fetchLatest: () => fetchLatestVersion(fetchTimeoutMs),
+  });
+  return latestVersion === undefined
+    ? undefined
+    : { currentVersion, latestVersion, command: UPDATE_COMMAND };
+}
+
+/** Start a non-blocking check whose result can be read by a later tool call. */
+export function startBackgroundUpdateCheck(
+  currentVersion: string,
+  env: NodeJS.ProcessEnv = process.env,
+  resolveUpdate: UpdateResolver = (version, checkEnv) =>
+    findAvailableUpdate(version, checkEnv, BACKGROUND_FETCH_TIMEOUT_MS),
+): BackgroundUpdateCheck {
+  let availableUpdate: AvailableUpdate | undefined;
+  const done = resolveUpdate(currentVersion, env).then(
+    (update) => {
+      availableUpdate = update;
+    },
+    () => {
+      // Update awareness is best-effort and must never affect the host process.
+    },
+  );
+  return {
+    getAvailableUpdate: () => availableUpdate,
+    done,
+  };
 }
 
 /** Best-effort interactive notice. Never throws or writes to normal stdout. */
@@ -147,12 +206,9 @@ export async function notifyIfUpdateAvailable(
     return;
   }
   try {
-    const latestVersion = await checkForUpdate({
-      currentVersion,
-      cacheFile: updateCacheFile(env),
-    });
-    if (latestVersion !== undefined) {
-      stderr.write(`${formatUpdateNotice(currentVersion, latestVersion)}\n\n`);
+    const update = await findAvailableUpdate(currentVersion, env);
+    if (update !== undefined) {
+      stderr.write(`${formatUpdateNotice(update.currentVersion, update.latestVersion)}\n\n`);
     }
   } catch {
     // Version awareness is useful, but no update check may break the CLI.

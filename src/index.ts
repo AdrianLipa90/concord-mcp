@@ -2,12 +2,14 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { writeArtifacts } from './artifacts/index.js';
+import { startBackgroundUpdateCheck } from './cli/update-notifier.js';
 import { resolveRepoRoot } from './config/paths.js';
 import { resolveIdentity } from './domain/identity.js';
 import { createServer } from './server.js';
 import { ensureAgentRegistered } from './tools/register-agent.js';
 import { createTelemetryClient } from './telemetry/client.js';
 import { TelemetryTransport } from './telemetry/transport.js';
+import { VERSION } from './version.js';
 import { WorkspaceManager } from './workspaces/manager.js';
 
 async function main(): Promise<void> {
@@ -20,9 +22,11 @@ async function main(): Promise<void> {
   if (identity !== undefined) {
     ensureAgentRegistered(workspaceManager.current().repos, identity, repoRoot);
   }
+  const updateCheck = startBackgroundUpdateCheck(VERSION, process.env);
   const server = createServer(workspaceManager.current().repos, {
     workspaceManager,
     ...(identity === undefined ? {} : { identity }),
+    getAvailableUpdate: updateCheck.getAvailableUpdate,
     onToolWrite: (workspace) => {
       if (workspace !== undefined) {
         writeArtifacts(workspace.concordPath, workspace.repos);
