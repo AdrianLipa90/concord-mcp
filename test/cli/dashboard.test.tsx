@@ -3,6 +3,7 @@ import { cleanup, render } from 'ink-testing-library';
 
 import { DashboardApp } from '../../src/cli/dashboard/app.js';
 import { buildDashboardSnapshot } from '../../src/cli/dashboard/model.js';
+import type { AvailableUpdate } from '../../src/cli/update-notifier.js';
 import { openDatabase } from '../../src/db/connection.js';
 import { createRepositories, type Repositories } from '../../src/db/index.js';
 import { handleClaimWork } from '../../src/tools/claim-work.js';
@@ -23,6 +24,12 @@ describe('dashboard snapshot', () => {
     repos.db.close();
   });
 
+  function flushRender(): Promise<void> {
+    return new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+
   function seedDashboard(): void {
     handleRegisterAgent(repos, {
       agent_id: 'claude-code:demo',
@@ -42,6 +49,7 @@ describe('dashboard snapshot', () => {
       kind: 'decision',
       content: 'Use a queued retry',
       agent: 'claude-code',
+      agent_id: 'claude-code:demo',
     });
     handleClaimWork(repos, {
       task_id: 'TASK-14',
@@ -57,6 +65,7 @@ describe('dashboard snapshot', () => {
       task_id: 'TASK-12',
       status: 'done',
       what_changed: 'Queued retries',
+      agent_id: 'claude-code:demo',
     });
     handleReviewReady(repos, {
       task_id: 'TASK-12',
@@ -76,7 +85,7 @@ describe('dashboard snapshot', () => {
     expect(snapshot.events[0]?.tool).toBe('review_ready');
   });
 
-  it('renders a wide overview and task context', () => {
+  it('renders a wide overview and task context', async () => {
     seedDashboard();
     const snapshot = buildDashboardSnapshot('/work/concord-demo', repos);
     const view = render(
@@ -84,7 +93,7 @@ describe('dashboard snapshot', () => {
         initialSnapshot={snapshot}
         loadSnapshot={() => snapshot}
         refreshMs={60_000}
-        width={120}
+        width={180}
         height={30}
       />,
     );
@@ -98,11 +107,9 @@ describe('dashboard snapshot', () => {
     expect(frame).toContain('Timeline');
 
     view.stdin.write('j');
+    await flushRender();
     expect(view.lastFrame()).toContain('Use a queued retry');
-    expect(view.lastFrame()).toContain(
-      snapshot.tasks.find((item) => item.task.taskId === 'TASK-12')?.task.updatedAt ??
-        'missing timestamp',
-    );
+    expect(view.lastFrame()).toContain('branch feat/retry');
   });
 
   it('uses a compact view below 70 columns', () => {
@@ -125,7 +132,37 @@ describe('dashboard snapshot', () => {
     expect(frame).not.toContain('Task context');
   });
 
-  it('filters tasks and exposes keyboard help', () => {
+  it('keeps an available update visible without growing the viewport', async () => {
+    seedDashboard();
+    const snapshot = buildDashboardSnapshot('/work/concord-demo', repos);
+    const updateState: { availableUpdate?: AvailableUpdate } = {};
+    const view = render(
+      <DashboardApp
+        initialSnapshot={snapshot}
+        loadSnapshot={() => snapshot}
+        refreshMs={60_000}
+        width={120}
+        height={24}
+        loadAvailableUpdate={() => updateState.availableUpdate}
+      />,
+    );
+    expect(view.lastFrame()).not.toContain('Update available');
+
+    updateState.availableUpdate = {
+      currentVersion: '0.10.1',
+      latestVersion: '0.11.0',
+      command: 'npm install -g @concord-ai/concord-mcp@latest',
+    };
+    view.stdin.write('r');
+    await flushRender();
+    const frame = view.lastFrame();
+
+    expect(frame).toContain('Update available 0.10.1 → 0.11.0');
+    expect(frame).toContain('npm install -g @concord-ai/concord-mcp@latest');
+    expect(frame?.split('\n')).toHaveLength(24);
+  });
+
+  it('filters tasks and exposes keyboard help', async () => {
     seedDashboard();
     const snapshot = buildDashboardSnapshot('/work/concord-demo', repos);
     const view = render(
@@ -140,16 +177,19 @@ describe('dashboard snapshot', () => {
 
     view.stdin.write('/');
     view.stdin.write('invoice');
+    await flushRender();
     expect(view.lastFrame()).toContain('TASK-14');
     expect(view.lastFrame()).not.toContain('TASK-12 — Add Stripe retry handling');
 
-    view.stdin.write('\u001B');
+    view.stdin.write('\r');
+    await flushRender();
     view.stdin.write('?');
+    await flushRender();
     expect(view.lastFrame()).toContain('Keyboard help');
     expect(view.lastFrame()).toContain('Tab/Shift-Tab');
   });
 
-  it('refreshes immediately when r is pressed', () => {
+  it('refreshes immediately when r is pressed', async () => {
     seedDashboard();
     const initial = buildDashboardSnapshot('/work/concord-demo', repos);
     const view = render(
@@ -165,10 +205,11 @@ describe('dashboard snapshot', () => {
     handleClaimWork(repos, { task_id: 'TASK-99', title: 'New live work', agent: 'cursor' });
     expect(view.lastFrame()).not.toContain('TASK-99');
     view.stdin.write('r');
+    await flushRender();
     expect(view.lastFrame()).toContain('TASK-99');
   });
 
-  it('keeps a fixed viewport as the roster grows', () => {
+  it('keeps a fixed viewport as the roster grows', async () => {
     seedDashboard();
     const initial = buildDashboardSnapshot('/work/concord-demo', repos);
     const view = render(
@@ -194,6 +235,7 @@ describe('dashboard snapshot', () => {
       });
     }
     view.stdin.write('r');
+    await flushRender();
 
     expect(view.lastFrame()?.split('\n')).toHaveLength(initialHeight);
     expect(initialHeight).toBe(24);

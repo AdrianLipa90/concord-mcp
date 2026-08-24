@@ -4,6 +4,8 @@ import { render } from 'ink';
 import { DashboardApp } from '../dashboard/app.js';
 import { buildDashboardSnapshot } from '../dashboard/model.js';
 import { openContext } from '../context.js';
+import { startBackgroundUpdateCheck } from '../update-notifier.js';
+import { VERSION } from '../../version.js';
 
 export const DASHBOARD_TTY_ERROR =
   'concord dashboard needs an interactive terminal. Use `concord status` for plain-text output.';
@@ -14,6 +16,7 @@ export async function runDashboard(
   cwd: string,
   stdin: NodeJS.ReadStream = process.stdin,
   stdout: NodeJS.WriteStream = process.stdout,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   if (!stdin.isTTY || !stdout.isTTY) {
     throw new Error(DASHBOARD_TTY_ERROR);
@@ -22,11 +25,18 @@ export async function runDashboard(
   const context = openContext(cwd);
   const loadSnapshot = (): ReturnType<typeof buildDashboardSnapshot> =>
     buildDashboardSnapshot(context.repoRoot, context.repos);
+  const updateCheck = startBackgroundUpdateCheck(VERSION, env);
+  const availableUpdate = updateCheck.getAvailableUpdate();
 
   stdout.write(ENTER_ALTERNATE_SCREEN);
   try {
     const app = render(
-      <DashboardApp initialSnapshot={loadSnapshot()} loadSnapshot={loadSnapshot} />,
+      <DashboardApp
+        initialSnapshot={loadSnapshot()}
+        loadSnapshot={loadSnapshot}
+        {...(availableUpdate === undefined ? {} : { availableUpdate })}
+        loadAvailableUpdate={updateCheck.getAvailableUpdate}
+      />,
       {
         stdin,
         stdout,

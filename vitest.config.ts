@@ -6,7 +6,7 @@ export default defineConfig({
     globals: false,
     // No test files exist until the storage/tool PRs land; don't fail the scaffold.
     passWithNoTests: true,
-    include: ['test/**/*.test.ts'],
+    include: ['test/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

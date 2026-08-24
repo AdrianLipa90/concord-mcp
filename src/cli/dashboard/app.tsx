@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 
+import type { AvailableUpdate } from '../update-notifier.js';
 import type { PresenceEntry } from '../../domain/presence.js';
 import type { DashboardSnapshot, DashboardTask } from './model.js';
 
@@ -13,6 +14,8 @@ export interface DashboardAppProps {
   refreshMs?: number;
   width?: number;
   height?: number;
+  availableUpdate?: AvailableUpdate;
+  loadAvailableUpdate?: () => AvailableUpdate | undefined;
 }
 
 interface PanelProps {
@@ -344,6 +347,8 @@ export function DashboardApp({
   refreshMs = 1_000,
   width,
   height,
+  availableUpdate: initialAvailableUpdate,
+  loadAvailableUpdate,
 }: DashboardAppProps): ReactNode {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -356,9 +361,11 @@ export function DashboardApp({
   const [searching, setSearching] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [availableUpdate, setAvailableUpdate] = useState(initialAvailableUpdate);
 
   const layout = layoutFor(width ?? terminalWidth);
   const viewportHeight = height ?? terminalHeight;
+  const chromeHeight = availableUpdate === undefined ? 2 : 3;
   const panes = panesFor(layout);
   const pane = panes[paneIndex % panes.length] ?? 'tasks';
   const tasks = useMemo(
@@ -369,11 +376,14 @@ export function DashboardApp({
   const refresh = useCallback(() => {
     try {
       setSnapshot(loadSnapshot());
+      if (loadAvailableUpdate !== undefined) {
+        setAvailableUpdate(loadAvailableUpdate());
+      }
       setError(undefined);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [loadSnapshot]);
+  }, [loadAvailableUpdate, loadSnapshot]);
 
   useEffect(() => {
     const timer = setInterval(refresh, refreshMs);
@@ -451,8 +461,16 @@ export function DashboardApp({
         </Text>
         <Text dimColor>updated {shortTime(snapshot.generatedAt)}</Text>
       </Box>
+      {availableUpdate === undefined ? null : (
+        <Box height={1} overflow="hidden">
+          <Text bold color="yellow" wrap="truncate-end">
+            ↑ Update available {availableUpdate.currentVersion} → {availableUpdate.latestVersion} ·{' '}
+            {availableUpdate.command} · restart your MCP client after upgrading
+          </Text>
+        </Box>
+      )}
       {showHelp ? (
-        <Box height={Math.max(1, viewportHeight - 2)} overflow="hidden">
+        <Box height={Math.max(1, viewportHeight - chromeHeight)} overflow="hidden">
           <Help />
         </Box>
       ) : (
@@ -463,7 +481,7 @@ export function DashboardApp({
           tasks={tasks}
           selectedIndex={selectedIndex}
           filter={filter}
-          height={Math.max(1, viewportHeight - 2)}
+          height={Math.max(1, viewportHeight - chromeHeight)}
         />
       )}
       <Box height={1} overflow="hidden">
