@@ -730,6 +730,16 @@ export function registerWorkflowTools(
     },
     async (args) => {
       const workspace = selectToolWorkspace(selectWorkspace, args.workspace_id);
+      const telemetryWorkspaceRoot = workspace?.repoRoot;
+      const messageTaskId =
+        args.task_id ??
+        (args.operation === 'reply' && args.reply_to_message_id !== undefined
+          ? repos.agentMessages.get(args.reply_to_message_id)?.taskId
+          : undefined);
+      const messageTaskFlowId =
+        messageTaskId === undefined || messageTaskId === null
+          ? null
+          : (taskFlowId(messageTaskId) ?? null);
       try {
         const result = await handleUpdateWork(repos, withActor(args), dispatcher);
         onWrite?.();
@@ -757,24 +767,28 @@ export function registerWorkflowTools(
             },
           });
         }
-        const messageTaskFlowId =
-          result.message.taskId === null ? null : (taskFlowId(result.message.taskId) ?? null);
-        telemetry?.recordEvent({
-          event_type: 'message_delivery',
-          task_flow_id: messageTaskFlowId,
-          message_kind: args.operation === 'reply' ? 'reply' : 'prompt',
-          stage: 'send',
-          result: result.delivery === 'delivered' ? 'delivered' : 'queued',
-          delivery_mode: result.immediateMode,
-          error_code: null,
-          latency_ms:
-            result.message.deliveredAt === null
-              ? null
-              : Math.max(
-                  0,
-                  Date.parse(result.message.deliveredAt) - Date.parse(result.message.createdAt),
-                ),
-        });
+        if (!result.idempotentReplay) {
+          telemetry?.recordEvent(
+            {
+              event_type: 'message_delivery',
+              task_flow_id: messageTaskFlowId,
+              message_kind: args.operation === 'reply' ? 'reply' : 'prompt',
+              stage: 'send',
+              result: result.delivery === 'delivered' ? 'delivered' : 'queued',
+              delivery_mode: result.immediateMode,
+              error_code: null,
+              latency_ms:
+                result.message.deliveredAt === null
+                  ? null
+                  : Math.max(
+                      0,
+                      Date.parse(result.message.deliveredAt) -
+                        Date.parse(result.message.createdAt),
+                    ),
+            },
+            telemetryWorkspaceRoot,
+          );
+        }
         return withSessionAdvisories({
           content: [
             {
@@ -811,16 +825,20 @@ export function registerWorkflowTools(
       } catch (error) {
         onWrite?.();
         if (error instanceof AgentMessageDeliveryError) {
-          telemetry?.recordEvent({
-            event_type: 'message_delivery',
-            task_flow_id: args.task_id === undefined ? null : (taskFlowId(args.task_id) ?? null),
-            message_kind: args.operation === 'reply' ? 'reply' : 'prompt',
-            stage: 'send',
-            result: 'failed',
-            delivery_mode: null,
-            error_code: error.code,
-            latency_ms: null,
-          });
+          telemetry?.recordEvent(
+            {
+              event_type: 'message_delivery',
+              task_flow_id:
+                messageTaskFlowId,
+              message_kind: args.operation === 'reply' ? 'reply' : 'prompt',
+              stage: 'send',
+              result: 'failed',
+              delivery_mode: null,
+              error_code: error.code,
+              latency_ms: null,
+            },
+            telemetryWorkspaceRoot,
+          );
           return withSessionAdvisories({
             isError: true,
             content: [

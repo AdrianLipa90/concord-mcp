@@ -608,7 +608,13 @@ describe('simplified workflow MCP contract', () => {
   });
 
   it('records an explicit reply and does not redeliver an idempotent replay', async () => {
-    const harness = await connect(repos);
+    const events: SemanticTelemetryEvent[] = [];
+    const telemetry: TelemetryRecorder = {
+      taskPseudonym: () => 'a'.repeat(64),
+      recordOperation: () => undefined,
+      recordEvent: (event) => events.push(event),
+    };
+    const harness = await connect(repos, undefined, undefined, telemetry);
     try {
       for (const agentId of ['codex:a', 'claude:b']) {
         repos.agents.upsert({
@@ -689,6 +695,7 @@ describe('simplified workflow MCP contract', () => {
       expect(repos.agentMessages.listThread(parent?.messageId ?? '')).toHaveLength(2);
       expect(repos.tasks.get('TASK-THREAD')?.updatedAt).not.toBe(oldTimestamp);
       expect(JSON.stringify(reply)).toContain('"task_id":"TASK-THREAD"');
+      expect(events.filter((event) => event.event_type === 'message_delivery')).toHaveLength(3);
     } finally {
       await close(harness);
     }

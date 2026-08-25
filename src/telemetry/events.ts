@@ -47,5 +47,5 @@ export type SemanticTelemetryEvent =
 export interface TelemetryRecorder {
   taskPseudonym(taskId: string): string | null;
   recordOperation(operation: string, outcome: TelemetryOutcome, durationMs: number): void;
-  recordEvent(event: SemanticTelemetryEvent): void;
+  recordEvent(event: SemanticTelemetryEvent, workspaceRoot?: string): void;
 }

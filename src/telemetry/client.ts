@@ -116,8 +116,8 @@ export class TelemetryClient implements TelemetryRecorder {
     });
   }
 
-  recordEvent(event: SemanticTelemetryEvent): void {
-    this.#enqueue(event);
+  recordEvent(event: SemanticTelemetryEvent, workspaceRoot?: string): void {
+    this.#enqueue(event, workspaceRoot);
   }
 
   async flush(): Promise<void> {
@@ -168,11 +168,11 @@ export class TelemetryClient implements TelemetryRecorder {
     return this.flush();
   }
 
-  #enqueue(event: EventPayload): void {
+  #enqueue(event: EventPayload, workspaceRoot?: string): void {
     if (this.#events.length >= MAX_QUEUE_SIZE) {
       this.#events.shift();
     }
-    const root = this.#workspaceRoot();
+    const root = workspaceRoot ?? this.#workspaceRoot();
     this.#events.push({
       ...event,
       event_id: randomUUID(),
