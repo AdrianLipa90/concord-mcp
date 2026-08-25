@@ -6,8 +6,8 @@ import {
   serializeStringArray,
   type HandoffDeliveryStatus,
   type HandoffRecord,
+  type ReportedOutcome,
 } from '../rows.js';
-import type { ReportedOutcome } from '../../domain/schemas.js';
 
 /** Input for recording a handoff. Array fields default to `[]` at the caller. */
 export interface NewHandoff {

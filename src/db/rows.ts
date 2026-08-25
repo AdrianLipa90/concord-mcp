@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-import { reportedOutcomeSchema, type ReportedOutcome } from '../domain/schemas.js';
-
 /**
  * Row parsing lives here so the "never typecast" rule holds across the db layer:
  * every raw better-sqlite3 result enters as `unknown` and is narrowed by a Zod
@@ -67,6 +65,25 @@ export interface ProvenanceEntry {
 }
 
 const provenanceSchema = z.array(z.object({ field: z.string(), source: z.string() }));
+
+export const reportedOutcomeSchema = z
+  .object({
+    source: z.enum(['agent', 'ci', 'review', 'human']),
+    acceptance: z.enum(['accepted', 'rejected', 'not_checked']).default('not_checked'),
+    integration: z.enum(['passed', 'failed', 'not_checked']).default('not_checked'),
+    human_intervention_ms: z.number().int().min(0).max(604_800_000).optional(),
+    rework_ms: z.number().int().min(0).max(604_800_000).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.acceptance !== 'not_checked' ||
+      value.integration !== 'not_checked' ||
+      value.human_intervention_ms !== undefined ||
+      value.rework_ms !== undefined,
+    { message: 'reported_outcome must contain at least one measured result' },
+  );
+export type ReportedOutcome = z.infer<typeof reportedOutcomeSchema>;
 
 function parseReportedOutcome(value: string | null): ReportedOutcome | null {
   if (value === null) return null;
