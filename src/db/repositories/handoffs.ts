@@ -6,7 +6,7 @@ import {
   serializeStringArray,
   type HandoffDeliveryStatus,
   type HandoffRecord,
-  type ReportedOutcome,
+  type ReportedOutcomeRecord,
 } from '../rows.js';
 
 /** Input for recording a handoff. Array fields default to `[]` at the caller. */
@@ -27,7 +27,7 @@ export interface NewHandoff {
   deliveryStatus?: HandoffDeliveryStatus;
   expiresAt?: string | null;
   taskVersion?: number | null;
-  reportedOutcome?: ReportedOutcome | null;
+  reportedOutcome?: ReportedOutcomeRecord | null;
 }
 
 export interface HandoffRepository {

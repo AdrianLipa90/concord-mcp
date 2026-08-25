@@ -102,6 +102,23 @@ describe('handleHandoff', () => {
     ).toThrow(/provenance is required/u);
   });
 
+  it('rejects an outcome with provenance for another field', () => {
+    handleClaimWork(repos, { task_id: 'TASK-WRONG-SOURCE', title: 'Wrong source' });
+    expect(() =>
+      handleHandoff(repos, {
+        task_id: 'TASK-WRONG-SOURCE',
+        status: 'done',
+        what_changed: 'x',
+        reported_outcome: {
+          source: 'agent',
+          acceptance: 'accepted',
+          integration: 'not_checked',
+        },
+        provenance: [{ field: 'tests_run', source: 'pnpm test' }],
+      }),
+    ).toThrow(/reported_outcome provenance is required/u);
+  });
+
   it('produces a review packet when ready_for_review is set (folded review_ready)', () => {
     handleClaimWork(repos, { task_id: 'TASK-12', title: 'Retry', modules: ['billing'] });
     const result = handleHandoff(repos, {

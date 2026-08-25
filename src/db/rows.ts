@@ -66,7 +66,7 @@ export interface ProvenanceEntry {
 
 const provenanceSchema = z.array(z.object({ field: z.string(), source: z.string() }));
 
-export const reportedOutcomeSchema = z
+const reportedOutcomeDbSchema = z
   .object({
     source: z.enum(['agent', 'ci', 'review', 'human']),
     acceptance: z.enum(['accepted', 'rejected', 'not_checked']).default('not_checked'),
@@ -83,12 +83,12 @@ export const reportedOutcomeSchema = z
       value.rework_ms !== undefined,
     { message: 'reported_outcome must contain at least one measured result' },
   );
-export type ReportedOutcome = z.infer<typeof reportedOutcomeSchema>;
+export type ReportedOutcomeRecord = z.infer<typeof reportedOutcomeDbSchema>;
 
-function parseReportedOutcome(value: string | null): ReportedOutcome | null {
+function parseReportedOutcome(value: string | null): ReportedOutcomeRecord | null {
   if (value === null) return null;
   const parsed: unknown = JSON.parse(value);
-  return reportedOutcomeSchema.parse(parsed);
+  return reportedOutcomeDbSchema.parse(parsed);
 }
 
 /** Parse a JSON-encoded TEXT column into validated provenance entries. */
@@ -248,7 +248,7 @@ export interface HandoffRecord {
   resolvedAt: string | null;
   taskVersion: number | null;
   resolutionReason: string | null;
-  reportedOutcome: ReportedOutcome | null;
+  reportedOutcome: ReportedOutcomeRecord | null;
   createdAt: string;
 }
 

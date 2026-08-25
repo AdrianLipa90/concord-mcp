@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-import { reportedOutcomeSchema } from '../db/rows.js';
-
 /**
  * The five public MCP workflow contracts. Internal lifecycle operations derive
  * their TypeScript inputs from these shapes in operations.ts; they are not
@@ -78,6 +76,23 @@ const provenanceField = z
   .optional()
   .describe('Evidence source for review claims');
 
+export const reportedOutcomeSchema = z
+  .object({
+    source: z.enum(['agent', 'ci', 'review', 'human']),
+    acceptance: z.enum(['accepted', 'rejected', 'not_checked']).default('not_checked'),
+    integration: z.enum(['passed', 'failed', 'not_checked']).default('not_checked'),
+    human_intervention_ms: z.number().int().min(0).max(604_800_000).optional(),
+    rework_ms: z.number().int().min(0).max(604_800_000).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.acceptance !== 'not_checked' ||
+      value.integration !== 'not_checked' ||
+      value.human_intervention_ms !== undefined ||
+      value.rework_ms !== undefined,
+    { message: 'reported_outcome must contain at least one measured result' },
+  );
 export type ReportedOutcome = z.infer<typeof reportedOutcomeSchema>;
 
 export const startWorkInputShape = {

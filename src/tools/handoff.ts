@@ -40,8 +40,11 @@ export function handleHandoff(repos: Repositories, input: HandoffInput): Handoff
       `Task ${input.task_id} version conflict: expected ${String(input.expected_version)}, current ${String(existing.version)}.`,
     );
   }
-  if (input.reported_outcome !== undefined && (input.provenance?.length ?? 0) === 0) {
-    throw new Error('provenance is required when reported_outcome is supplied.');
+  if (
+    input.reported_outcome !== undefined &&
+    !input.provenance?.some((entry) => entry.field === 'reported_outcome')
+  ) {
+    throw new Error('reported_outcome provenance is required when reported_outcome is supplied.');
   }
 
   const reviewReady = input.ready_for_review === true;
