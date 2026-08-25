@@ -13,6 +13,8 @@ export interface DeliverableMessage {
   senderAgentId: string;
   taskId: string | null;
   content: string;
+  messageKind: 'prompt' | 'reply';
+  deliveryLatencyMs: number | null;
 }
 
 /**

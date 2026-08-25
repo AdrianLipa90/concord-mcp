@@ -36,6 +36,7 @@ export function checkFileOverlaps(
         taskId: task.taskId,
         title: task.title,
         reasons: [`same file(s): ${unique.join(', ')}`],
+        kinds: ['same_file'],
       });
     }
   }

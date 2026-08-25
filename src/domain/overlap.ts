@@ -19,7 +19,11 @@ export interface OverlapWarning {
   taskId: string;
   title: string;
   reasons: string[];
+  kinds: OverlapKind[];
 }
+
+export type OverlapKind =
+  'same_file' | 'same_directory' | 'shared_module' | 'shared_domain' | 'shared_risk_tag';
 
 function sortedIntersection(a: readonly string[], b: readonly string[]): string[] {
   const other = new Set(b);
@@ -85,8 +89,12 @@ function isParentChild(candidate: OverlapSurface, task: TaskRecord): boolean {
   return candidate.parentTaskId === task.taskId || task.parentTaskId === candidate.taskId;
 }
 
-function reasonsFor(candidate: OverlapSurface, existing: OverlapSurface): string[] {
+function detailsFor(
+  candidate: OverlapSurface,
+  existing: OverlapSurface,
+): { reasons: string[]; kinds: OverlapKind[] } {
   const reasons: string[] = [];
+  const kinds: OverlapKind[] = [];
 
   const sameFiles = sortedIntersection(
     candidate.expectedFiles.map(normalizePath).filter((file) => file !== ''),
@@ -94,6 +102,7 @@ function reasonsFor(candidate: OverlapSurface, existing: OverlapSurface): string
   );
   if (sameFiles.length > 0) {
     reasons.push(`same file(s): ${sameFiles.join(', ')}`);
+    kinds.push('same_file');
   }
 
   const sameDirs = sortedIntersection(
@@ -102,16 +111,19 @@ function reasonsFor(candidate: OverlapSurface, existing: OverlapSurface): string
   );
   if (sameDirs.length > 0 && sameFiles.length === 0) {
     reasons.push(`same directory: ${sameDirs.join(', ')}`);
+    kinds.push('same_directory');
   }
 
   const sameModules = sortedIntersection(tokensOf(candidate.modules), tokensOf(existing.modules));
   if (sameModules.length > 0) {
     reasons.push(`shared module(s): ${sameModules.join(', ')}`);
+    kinds.push('shared_module');
   }
 
   const sameDomains = sortedIntersection(tokensOf(candidate.domains), tokensOf(existing.domains));
   if (sameDomains.length > 0) {
     reasons.push(`shared domain(s): ${sameDomains.join(', ')}`);
+    kinds.push('shared_domain');
   }
 
   const sameRiskTags = sortedIntersection(
@@ -120,9 +132,10 @@ function reasonsFor(candidate: OverlapSurface, existing: OverlapSurface): string
   );
   if (sameRiskTags.length > 0) {
     reasons.push(`shared risk tag(s): ${sameRiskTags.join(', ')}`);
+    kinds.push('shared_risk_tag');
   }
 
-  return reasons;
+  return { reasons, kinds };
 }
 
 /**
@@ -141,9 +154,9 @@ export function detectOverlaps(
     if (task.taskId === candidate.taskId || isParentChild(candidate, task)) {
       continue;
     }
-    const reasons = reasonsFor(candidate, surfaceOf(task));
+    const { reasons, kinds } = detailsFor(candidate, surfaceOf(task));
     if (reasons.length > 0) {
-      warnings.push({ taskId: task.taskId, title: task.title, reasons });
+      warnings.push({ taskId: task.taskId, title: task.title, reasons, kinds });
     }
   }
   return warnings;

@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Repositories } from './db/index.js';
 import type { AgentIdentity } from './domain/identity.js';
+import type { TelemetryRecorder } from './telemetry/events.js';
 import { CONCORD_SERVER_INSTRUCTIONS } from './install/instructions.js';
 import type { AvailableUpdate } from './update-notifier.js';
 import { registerWorkStateResource } from './tools/get-work-state.js';
@@ -29,6 +30,8 @@ export interface ServerOptions {
   identity?: AgentIdentity;
   /** Reads a background update check without blocking an MCP tool call. */
   getAvailableUpdate?: () => AvailableUpdate | undefined;
+  /** Receives whitelisted, content-free results from workflow handlers. */
+  telemetry?: TelemetryRecorder;
 }
 
 /**
@@ -58,6 +61,8 @@ export function createServer(repos: Repositories, options: ServerOptions = {}): 
     selectWorkspace,
     options.identity,
     options.getAvailableUpdate,
+    undefined,
+    options.telemetry,
   );
   return server;
 }

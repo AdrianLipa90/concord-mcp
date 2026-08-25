@@ -43,7 +43,7 @@ function persistIdentity(path: string, identity: TelemetryIdentity): boolean {
   }
 }
 
-/** Load or create the anonymous identity. Failure disables telemetry. */
+/** Load or create the pseudonymous installation identity. Failure disables telemetry. */
 export function loadTelemetryIdentity(path: string): TelemetryIdentity | undefined {
   try {
     const parsed = identitySchema.parse(JSON.parse(readFileSync(path, 'utf8')));
@@ -71,4 +71,15 @@ export function markTelemetryNoticeShown(path: string, identity: TelemetryIdenti
 /** Stable only for this installation; the canonical path and key never leave the machine. */
 export function workspacePseudonym(identity: TelemetryIdentity, repoRoot: string): string {
   return createHmac('sha256', identity.workspaceKey).update(repoRoot).digest('hex');
+}
+
+/** Opaque, installation-scoped correlation token. Raw identifiers never leave the client. */
+export function taskPseudonym(
+  identity: TelemetryIdentity,
+  repoRoot: string,
+  taskId: string,
+): string {
+  return createHmac('sha256', identity.workspaceKey)
+    .update(`${repoRoot}\0task\0${taskId}`)
+    .digest('hex');
 }
