@@ -782,8 +782,7 @@ export function registerWorkflowTools(
                   ? null
                   : Math.max(
                       0,
-                      Date.parse(result.message.deliveredAt) -
-                        Date.parse(result.message.createdAt),
+                      Date.parse(result.message.deliveredAt) - Date.parse(result.message.createdAt),
                     ),
             },
             telemetryWorkspaceRoot,
@@ -828,8 +827,7 @@ export function registerWorkflowTools(
           telemetry?.recordEvent(
             {
               event_type: 'message_delivery',
-              task_flow_id:
-                messageTaskFlowId,
+              task_flow_id: messageTaskFlowId,
               message_kind: args.operation === 'reply' ? 'reply' : 'prompt',
               stage: 'send',
               result: 'failed',
