@@ -58,6 +58,67 @@ describe('handleHandoff', () => {
     expect(result.handoff.needsReviewFrom).toEqual(['alex', 'sam']);
   });
 
+  it('persists a provenance-backed reported outcome', () => {
+    handleClaimWork(repos, { task_id: 'TASK-OUTCOME', title: 'Outcome evidence' });
+    const result = handleHandoff(repos, {
+      task_id: 'TASK-OUTCOME',
+      status: 'done',
+      what_changed: 'Implemented and verified the change',
+      reported_outcome: {
+        source: 'ci',
+        acceptance: 'accepted',
+        integration: 'passed',
+        human_intervention_ms: 1200,
+        rework_ms: 300,
+      },
+      provenance: [{ field: 'reported_outcome', source: 'CI run 481' }],
+    });
+
+    expect(result.handoff.reportedOutcome).toEqual({
+      source: 'ci',
+      acceptance: 'accepted',
+      integration: 'passed',
+      human_intervention_ms: 1200,
+      rework_ms: 300,
+    });
+    expect(repos.handoffs.latestForTask('TASK-OUTCOME')?.reportedOutcome).toEqual(
+      result.handoff.reportedOutcome,
+    );
+  });
+
+  it('rejects an outcome without provenance', () => {
+    handleClaimWork(repos, { task_id: 'TASK-NO-SOURCE', title: 'No source' });
+    expect(() =>
+      handleHandoff(repos, {
+        task_id: 'TASK-NO-SOURCE',
+        status: 'done',
+        what_changed: 'x',
+        reported_outcome: {
+          source: 'agent',
+          acceptance: 'accepted',
+          integration: 'not_checked',
+        },
+      }),
+    ).toThrow(/provenance is required/u);
+  });
+
+  it('rejects an outcome with provenance for another field', () => {
+    handleClaimWork(repos, { task_id: 'TASK-WRONG-SOURCE', title: 'Wrong source' });
+    expect(() =>
+      handleHandoff(repos, {
+        task_id: 'TASK-WRONG-SOURCE',
+        status: 'done',
+        what_changed: 'x',
+        reported_outcome: {
+          source: 'agent',
+          acceptance: 'accepted',
+          integration: 'not_checked',
+        },
+        provenance: [{ field: 'tests_run', source: 'pnpm test' }],
+      }),
+    ).toThrow(/reported_outcome provenance is required/u);
+  });
+
   it('produces a review packet when ready_for_review is set (folded review_ready)', () => {
     handleClaimWork(repos, { task_id: 'TASK-12', title: 'Retry', modules: ['billing'] });
     const result = handleHandoff(repos, {

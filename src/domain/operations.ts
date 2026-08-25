@@ -58,6 +58,7 @@ type FinishEvidenceInput = Pick<
   | 'diff_size'
   | 'open_questions'
   | 'provenance'
+  | 'reported_outcome'
 >;
 
 export type HandoffInput = FinishEvidenceInput & {

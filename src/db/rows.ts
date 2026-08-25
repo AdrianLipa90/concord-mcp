@@ -66,6 +66,31 @@ export interface ProvenanceEntry {
 
 const provenanceSchema = z.array(z.object({ field: z.string(), source: z.string() }));
 
+const reportedOutcomeDbSchema = z
+  .object({
+    source: z.enum(['agent', 'ci', 'review', 'human']),
+    acceptance: z.enum(['accepted', 'rejected', 'not_checked']).default('not_checked'),
+    integration: z.enum(['passed', 'failed', 'not_checked']).default('not_checked'),
+    human_intervention_ms: z.number().int().min(0).max(604_800_000).optional(),
+    rework_ms: z.number().int().min(0).max(604_800_000).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.acceptance !== 'not_checked' ||
+      value.integration !== 'not_checked' ||
+      value.human_intervention_ms !== undefined ||
+      value.rework_ms !== undefined,
+    { message: 'reported_outcome must contain at least one measured result' },
+  );
+export type ReportedOutcomeRecord = z.infer<typeof reportedOutcomeDbSchema>;
+
+function parseReportedOutcome(value: string | null): ReportedOutcomeRecord | null {
+  if (value === null) return null;
+  const parsed: unknown = JSON.parse(value);
+  return reportedOutcomeDbSchema.parse(parsed);
+}
+
 /** Parse a JSON-encoded TEXT column into validated provenance entries. */
 export function parseProvenance(json: string): ProvenanceEntry[] {
   const parsed: unknown = JSON.parse(json);
@@ -223,6 +248,7 @@ export interface HandoffRecord {
   resolvedAt: string | null;
   taskVersion: number | null;
   resolutionReason: string | null;
+  reportedOutcome: ReportedOutcomeRecord | null;
   createdAt: string;
 }
 
@@ -256,6 +282,7 @@ const handoffDbRowSchema = z.object({
   resolved_at: z.string().nullable(),
   task_version: z.number().int().nullable(),
   resolution_reason: z.string().nullable(),
+  reported_outcome: z.string().nullable(),
   created_at: z.string(),
 });
 
@@ -281,6 +308,7 @@ export function parseHandoffRow(raw: unknown): HandoffRecord {
     resolvedAt: row.resolved_at,
     taskVersion: row.task_version,
     resolutionReason: row.resolution_reason,
+    reportedOutcome: parseReportedOutcome(row.reported_outcome),
     createdAt: row.created_at,
   };
 }

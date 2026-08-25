@@ -76,6 +76,25 @@ const provenanceField = z
   .optional()
   .describe('Evidence source for review claims');
 
+export const reportedOutcomeSchema = z
+  .object({
+    source: z.enum(['agent', 'ci', 'review', 'human']),
+    acceptance: z.enum(['accepted', 'rejected', 'not_checked']).default('not_checked'),
+    integration: z.enum(['passed', 'failed', 'not_checked']).default('not_checked'),
+    human_intervention_ms: z.number().int().min(0).max(604_800_000).optional(),
+    rework_ms: z.number().int().min(0).max(604_800_000).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.acceptance !== 'not_checked' ||
+      value.integration !== 'not_checked' ||
+      value.human_intervention_ms !== undefined ||
+      value.rework_ms !== undefined,
+    { message: 'reported_outcome must contain at least one measured result' },
+  );
+export type ReportedOutcome = z.infer<typeof reportedOutcomeSchema>;
+
 export const startWorkInputShape = {
   task_id: taskIdField,
   title: claimMetadataField('Short human-readable title').min(1),
@@ -196,6 +215,9 @@ export const finishWorkInputShape = {
   diff_size: z.string().optional().describe('Rough diff size, e.g. +120 / -30'),
   open_questions: z.array(z.string()).optional().describe('Unresolved review questions'),
   provenance: provenanceField,
+  reported_outcome: reportedOutcomeSchema
+    .optional()
+    .describe('Optional measured acceptance, integration, or intervention result'),
   reason: z
     .string()
     .min(1)

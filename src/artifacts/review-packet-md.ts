@@ -8,6 +8,18 @@ function renderProvenance(review: ReviewRecord): string {
   return review.provenance.map((entry) => `- ${entry.field}: ${entry.source}`).join('\n');
 }
 
+function renderReportedOutcome(handoff: HandoffRecord | undefined): string {
+  const outcome = handoff?.reportedOutcome;
+  if (outcome === undefined || outcome === null) return '_Not reported_';
+  return [
+    `- Source: ${outcome.source}`,
+    `- Acceptance: ${outcome.acceptance}`,
+    `- Integration: ${outcome.integration}`,
+    `- Human intervention: ${String(outcome.human_intervention_ms ?? 0)} ms`,
+    `- Rework: ${String(outcome.rework_ms ?? 0)} ms`,
+  ].join('\n');
+}
+
 /**
  * Render a REVIEW_PACKET.md combining the task, its latest review packet, and
  * (when available) its latest handoff for changed files and decisions.
@@ -38,6 +50,10 @@ export function renderReviewPacketMarkdown(
     '## Decisions',
     '',
     bulletList(decisions),
+    '',
+    '## Reported outcome',
+    '',
+    renderReportedOutcome(handoff),
     '',
     '## Tests run',
     '',

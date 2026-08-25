@@ -6,6 +6,7 @@ import {
   serializeStringArray,
   type HandoffDeliveryStatus,
   type HandoffRecord,
+  type ReportedOutcomeRecord,
 } from '../rows.js';
 
 /** Input for recording a handoff. Array fields default to `[]` at the caller. */
@@ -26,6 +27,7 @@ export interface NewHandoff {
   deliveryStatus?: HandoffDeliveryStatus;
   expiresAt?: string | null;
   taskVersion?: number | null;
+  reportedOutcome?: ReportedOutcomeRecord | null;
 }
 
 export interface HandoffRepository {
@@ -49,12 +51,12 @@ export function createHandoffRepository(db: ConcordDatabase): HandoffRepository 
       task_id, status, changed_files, what_changed, tests_run, known_risks,
       assumptions, decisions, guardrails_checked, needs_review_from, next_steps,
       from_agent_id, to_agent_id, delivery_status, expires_at, resolved_at,
-      task_version, resolution_reason, created_at
+      task_version, resolution_reason, reported_outcome, created_at
     ) VALUES (
       @task_id, @status, @changed_files, @what_changed, @tests_run, @known_risks,
       @assumptions, @decisions, @guardrails_checked, @needs_review_from, @next_steps,
       @from_agent_id, @to_agent_id, @delivery_status, @expires_at, @resolved_at,
-      @task_version, @resolution_reason, @created_at
+      @task_version, @resolution_reason, @reported_outcome, @created_at
     )
   `);
   const getByIdStmt = db.prepare('SELECT * FROM handoffs WHERE id = ?');
@@ -103,6 +105,10 @@ export function createHandoffRepository(db: ConcordDatabase): HandoffRepository 
         resolved_at: null,
         task_version: handoff.taskVersion ?? null,
         resolution_reason: null,
+        reported_outcome:
+          handoff.reportedOutcome === undefined || handoff.reportedOutcome === null
+            ? null
+            : JSON.stringify(handoff.reportedOutcome),
         created_at: new Date().toISOString(),
       });
       const raw: unknown = getByIdStmt.get(info.lastInsertRowid);
