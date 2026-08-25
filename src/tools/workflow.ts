@@ -767,7 +767,7 @@ export function registerWorkflowTools(
             },
           });
         }
-        if (!result.idempotentReplay) {
+        if (!result.idempotentReplay || result.immediateMode !== null) {
           telemetry?.recordEvent(
             {
               event_type: 'message_delivery',
