@@ -75,6 +75,10 @@ function touchesOf(task: TaskRecord): string {
 
 export function buildStatus(repos: Repositories, now: number = Date.now()): StatusView {
   const tasks = repos.tasks.list();
+  const agents = repos.agents.list();
+  const endpointsByAgent = new Map(
+    repos.agentEndpoints.list().map((endpoint) => [endpoint.agentId, endpoint] as const),
+  );
   const activeStatuses = new Set(['assigned', 'active', 'blocked', 'handoff_offered']);
   const active = tasks.filter((task) => activeStatuses.has(task.status));
 
@@ -93,7 +97,8 @@ export function buildStatus(repos: Repositories, now: number = Date.now()): Stat
         riskTags: task.riskTags,
         parentTaskId: task.parentTaskId,
       },
-      active.slice(index + 1),
+      active,
+      index + 1,
     )) {
       overlaps.push({ a: task.taskId, b: warning.taskId, reasons: warning.reasons });
     }
@@ -133,10 +138,10 @@ export function buildStatus(repos: Repositories, now: number = Date.now()): Stat
     overlaps,
     reviewReady,
     openQuestions,
-    presence: buildRoster(repos.agents.list(), now),
-    staleClaims: detectStaleClaims(tasks, repos.agents.list(), now),
-    communications: repos.agents.list().map((agent) => {
-      const endpoint = repos.agentEndpoints.getByAgent(agent.agentId);
+    presence: buildRoster(agents, now),
+    staleClaims: detectStaleClaims(tasks, agents, now),
+    communications: agents.map((agent) => {
+      const endpoint = endpointsByAgent.get(agent.agentId);
       return {
         agentId: agent.agentId,
         promptable: endpointPromptable(endpoint, now),
