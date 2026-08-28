@@ -79,8 +79,11 @@ export function buildStatus(repos: Repositories, now: number = Date.now()): Stat
   const active = tasks.filter((task) => activeStatuses.has(task.status));
 
   const overlaps: OverlapPair[] = [];
-  const seenPairs = new Set<string>();
-  for (const task of active) {
+  // Overlap is symmetric. Scan only the upper triangle so every task pair is
+  // evaluated once instead of A->B and B->A, and no deduplication set is needed.
+  for (let index = 0; index < active.length; index += 1) {
+    const task = active[index];
+    if (task === undefined) continue;
     for (const warning of detectOverlaps(
       {
         taskId: task.taskId,
@@ -90,13 +93,9 @@ export function buildStatus(repos: Repositories, now: number = Date.now()): Stat
         riskTags: task.riskTags,
         parentTaskId: task.parentTaskId,
       },
-      active,
+      active.slice(index + 1),
     )) {
-      const key = [task.taskId, warning.taskId].sort((x, y) => x.localeCompare(y)).join('::');
-      if (!seenPairs.has(key)) {
-        seenPairs.add(key);
-        overlaps.push({ a: task.taskId, b: warning.taskId, reasons: warning.reasons });
-      }
+      overlaps.push({ a: task.taskId, b: warning.taskId, reasons: warning.reasons });
     }
   }
 
