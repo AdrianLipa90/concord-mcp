@@ -9,10 +9,10 @@ const baseTask = {
   agent: 'codex',
   branch: null,
   worktree: null,
-  expectedFiles: [] as string[],
-  modules: [] as string[],
-  domains: [] as string[],
-  riskTags: [] as string[],
+  expectedFiles: [],
+  modules: [],
+  domains: [],
+  riskTags: [],
   notes: null,
   parentTaskId: null,
   agentId: null,
@@ -20,11 +20,11 @@ const baseTask = {
 
 const baseReview = {
   planSummary: 'plan',
-  testsRun: [] as string[],
+  testsRun: [],
   diffSize: null,
-  guardrailsChecked: [] as string[],
-  assumptions: [] as string[],
-  openQuestions: [] as string[],
+  guardrailsChecked: [],
+  assumptions: [],
+  openQuestions: [],
   provenance: [],
 };
 
