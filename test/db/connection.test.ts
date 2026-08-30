@@ -36,15 +36,14 @@ describe('openDatabase', () => {
 
   it('adds an index tailored to pending recipient drains', () => {
     const db = openDatabase(':memory:');
-    const raw: unknown = db
-      .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND name = ?")
-      .get('idx_agent_messages_pending_recipient');
-    const index = z.object({ name: z.string(), sql: z.string() }).parse(raw);
+    const raw: unknown = db.pragma('index_info(idx_agent_messages_pending_recipient)');
+    const columns = z
+      .array(z.object({ seqno: z.number(), cid: z.number(), name: z.string() }))
+      .parse(raw)
+      .sort((a, b) => a.seqno - b.seqno)
+      .map((entry) => entry.name);
 
-    expect(index.name).toBe('idx_agent_messages_pending_recipient');
-    expect(index.sql).toContain(
-      'agent_messages(recipient_agent_id, status, created_at, message_id)',
-    );
+    expect(columns).toEqual(['recipient_agent_id', 'status', 'created_at', 'message_id']);
   });
 
   it('upgrades a version-6 database without losing legacy task ownership', () => {
