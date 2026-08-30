@@ -25,6 +25,7 @@ export interface ReviewRepository {
   create(review: NewReview): ReviewRecord;
   listByTask(taskId: string): ReviewRecord[];
   latestForTask(taskId: string): ReviewRecord | undefined;
+  latestForTasks(taskIds: readonly string[]): ReviewRecord[];
 }
 
 const rawListSchema = z.array(z.unknown());
@@ -76,6 +77,24 @@ export function createReviewRepository(db: ConcordDatabase): ReviewRepository {
         return undefined;
       }
       return parseReviewRow(raw);
+    },
+    latestForTasks(taskIds) {
+      if (taskIds.length === 0) return [];
+      const placeholders = taskIds.map(() => '?').join(', ');
+      const raw: unknown = db
+        .prepare(
+          `SELECT r.*
+           FROM reviews r
+           JOIN (
+             SELECT task_id, MAX(id) AS id
+             FROM reviews
+             WHERE task_id IN (${placeholders})
+             GROUP BY task_id
+           ) latest ON latest.id = r.id
+           ORDER BY r.task_id ASC`,
+        )
+        .all(...taskIds);
+      return rawListSchema.parse(raw).map(parseReviewRow);
     },
   };
 }
