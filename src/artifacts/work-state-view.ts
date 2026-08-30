@@ -67,8 +67,16 @@ export interface StatusView {
   communications: CommunicationEntry[];
 }
 
-const ACTIVE_STATUSES = ['assigned', 'active', 'blocked', 'handoff_offered'] as const satisfies readonly TaskStatus[];
-const STATUS_VIEW_STATUSES = [...ACTIVE_STATUSES, 'review_ready'] as const satisfies readonly TaskStatus[];
+const ACTIVE_STATUSES = [
+  'assigned',
+  'active',
+  'blocked',
+  'handoff_offered',
+] as const satisfies readonly TaskStatus[];
+const STATUS_VIEW_STATUSES = [
+  ...ACTIVE_STATUSES,
+  'review_ready',
+] as const satisfies readonly TaskStatus[];
 
 function touchesOf(task: TaskRecord): string {
   const values = task.modules.length > 0 ? task.modules : task.expectedFiles.map((f) => dirname(f));
@@ -111,7 +119,9 @@ export function buildStatus(repos: Repositories, now: number = Date.now()): Stat
 
   const reviewTasks = tasks.filter((task) => task.status === 'review_ready');
   const latestReviews = new Map(
-    repos.reviews.latestForTasks(reviewTasks.map((task) => task.taskId)).map((review) => [review.taskId, review] as const),
+    repos.reviews
+      .latestForTasks(reviewTasks.map((task) => task.taskId))
+      .map((review) => [review.taskId, review] as const),
   );
   const reviewReady: ReviewEntry[] = [];
   const openQuestions: OpenQuestionEntry[] = [];
