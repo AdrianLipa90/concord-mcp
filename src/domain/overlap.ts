@@ -148,10 +148,12 @@ function detailsFor(
 export function detectOverlaps(
   candidate: OverlapSurface,
   existing: readonly TaskRecord[],
+  startIndex = 0,
 ): OverlapWarning[] {
   const warnings: OverlapWarning[] = [];
-  for (const task of existing) {
-    if (task.taskId === candidate.taskId || isParentChild(candidate, task)) {
+  for (let index = startIndex; index < existing.length; index += 1) {
+    const task = existing[index];
+    if (task === undefined || task.taskId === candidate.taskId || isParentChild(candidate, task)) {
       continue;
     }
     const { reasons, kinds } = detailsFor(candidate, surfaceOf(task));

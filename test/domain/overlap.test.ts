@@ -161,4 +161,17 @@ describe('detectOverlaps', () => {
       1,
     );
   });
+
+  it('skips an existing-task prefix when an offset is provided', () => {
+    const existing = [
+      task({ taskId: 'TASK-B', modules: ['billing'] }),
+      task({ taskId: 'TASK-C', domains: ['payments'] }),
+      task({ taskId: 'TASK-E', modules: ['signup'] }),
+    ];
+
+    const warnings = detectOverlaps(candidate, existing, 1);
+
+    expect(warnings.map((warning) => warning.taskId)).toEqual(['TASK-C']);
+    expect(warnings[0]?.reasons).toContain('shared domain(s): payments');
+  });
 });

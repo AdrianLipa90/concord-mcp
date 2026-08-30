@@ -75,12 +75,19 @@ function touchesOf(task: TaskRecord): string {
 
 export function buildStatus(repos: Repositories, now: number = Date.now()): StatusView {
   const tasks = repos.tasks.list();
+  const agents = repos.agents.list();
+  const endpointsByAgent = new Map(
+    repos.agentEndpoints.list().map((endpoint) => [endpoint.agentId, endpoint] as const),
+  );
   const activeStatuses = new Set(['assigned', 'active', 'blocked', 'handoff_offered']);
   const active = tasks.filter((task) => activeStatuses.has(task.status));
 
   const overlaps: OverlapPair[] = [];
-  const seenPairs = new Set<string>();
-  for (const task of active) {
+  // Overlap is symmetric. Scan only the upper triangle so every task pair is
+  // evaluated once instead of A->B and B->A, and no deduplication set is needed.
+  for (let index = 0; index < active.length; index += 1) {
+    const task = active[index];
+    if (task === undefined) continue;
     for (const warning of detectOverlaps(
       {
         taskId: task.taskId,
@@ -91,12 +98,9 @@ export function buildStatus(repos: Repositories, now: number = Date.now()): Stat
         parentTaskId: task.parentTaskId,
       },
       active,
+      index + 1,
     )) {
-      const key = [task.taskId, warning.taskId].sort((x, y) => x.localeCompare(y)).join('::');
-      if (!seenPairs.has(key)) {
-        seenPairs.add(key);
-        overlaps.push({ a: task.taskId, b: warning.taskId, reasons: warning.reasons });
-      }
+      overlaps.push({ a: task.taskId, b: warning.taskId, reasons: warning.reasons });
     }
   }
 
@@ -134,10 +138,10 @@ export function buildStatus(repos: Repositories, now: number = Date.now()): Stat
     overlaps,
     reviewReady,
     openQuestions,
-    presence: buildRoster(repos.agents.list(), now),
-    staleClaims: detectStaleClaims(tasks, repos.agents.list(), now),
-    communications: repos.agents.list().map((agent) => {
-      const endpoint = repos.agentEndpoints.getByAgent(agent.agentId);
+    presence: buildRoster(agents, now),
+    staleClaims: detectStaleClaims(tasks, agents, now),
+    communications: agents.map((agent) => {
+      const endpoint = endpointsByAgent.get(agent.agentId);
       return {
         agentId: agent.agentId,
         promptable: endpointPromptable(endpoint, now),
