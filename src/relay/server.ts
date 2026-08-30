@@ -94,10 +94,7 @@ function authenticated(supplied: string, expected: string): boolean {
 }
 
 /** Deterministically spread relay heartbeat phases across one interval. */
-export function relayHeartbeatPhaseDelay(
-  endpointId: string,
-  intervalMs: number,
-): number {
+export function relayHeartbeatPhaseDelay(endpointId: string, intervalMs: number): number {
   let hash = 2_166_136_261;
   for (let index = 0; index < endpointId.length; index += 1) {
     hash ^= endpointId.charCodeAt(index);
@@ -221,12 +218,15 @@ export async function startAgentRelay(
     }
     storeEndpoint();
   };
-  const heartbeatStarter = setTimeout(() => {
-    heartbeatOnce();
-    if (closed) return;
-    heartbeat = setInterval(heartbeatOnce, heartbeatIntervalMs);
-    heartbeat.unref();
-  }, relayHeartbeatPhaseDelay(endpointId, heartbeatIntervalMs));
+  const heartbeatStarter = setTimeout(
+    () => {
+      heartbeatOnce();
+      if (closed) return;
+      heartbeat = setInterval(heartbeatOnce, heartbeatIntervalMs);
+      heartbeat.unref();
+    },
+    relayHeartbeatPhaseDelay(endpointId, heartbeatIntervalMs),
+  );
   heartbeatStarter.unref();
 
   return {
