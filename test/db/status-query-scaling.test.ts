@@ -58,4 +58,24 @@ describe('status query scaling repositories', () => {
     ]);
     expect(repos.reviews.latestForTasks([])).toEqual([]);
   });
+
+  it('bounds latest-review query parameters across large worksets', () => {
+    const repos = createRepositories(openDatabase(':memory:'));
+    repos.tasks.create({ ...baseTask, taskId: 'FIRST', status: 'review_ready' });
+    repos.tasks.create({ ...baseTask, taskId: 'LAST', status: 'review_ready' });
+    repos.reviews.create({ ...baseReview, taskId: 'FIRST', planSummary: 'first review' });
+    repos.reviews.create({ ...baseReview, taskId: 'LAST', planSummary: 'last review' });
+
+    const taskIds = [
+      'LAST',
+      ...Array.from({ length: 1_200 }, (_, index) => `MISSING-${String(index)}`),
+      'FIRST',
+      'LAST',
+    ];
+
+    expect(repos.reviews.latestForTasks(taskIds).map((review) => review.taskId)).toEqual([
+      'FIRST',
+      'LAST',
+    ]);
+  });
 });
