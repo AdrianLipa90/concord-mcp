@@ -35,10 +35,9 @@ describe('status query scaling repositories', () => {
     repos.tasks.create({ ...baseTask, taskId: 'DONE', status: 'complete' });
     repos.tasks.create({ ...baseTask, taskId: 'REVIEW', status: 'review_ready' });
 
-    expect(repos.tasks.listByStatuses(['active', 'review_ready']).map((task) => task.taskId)).toEqual([
-      'ACTIVE',
-      'REVIEW',
-    ]);
+    expect(
+      repos.tasks.listByStatuses(['active', 'review_ready']).map((task) => task.taskId),
+    ).toEqual(['ACTIVE', 'REVIEW']);
     expect(repos.tasks.listByStatuses([])).toEqual([]);
   });
 
